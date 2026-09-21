@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Matches config/roles.ts RoleName type exactly — keep both in sync.
+enum RoleName {
+  sales
+  hod
+  credit_review
+  internal_control
+  md
+  finance
+  admin
+}
+
+// Step 2 adds Application + its status enum + an atomic app-number counter.
+// KycChecklistItem, Document, Comment, Approval, Disbursement, AuditEvent,
+// LoanProduct are added in Steps 3-5 per the build order.
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         RoleName
+  branch       String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  applicationsCreated Application[] @relation("ApplicationCreatedBy")
+
+  @@map("users")
+}
+
+// Matches workflow/statuses.ts ApplicationStatus type exactly — keep both in sync.
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  HOD_IN_REVIEW
+  HOD_QUERY
+  HOD_APPROVED
+  CREDIT_IN_REVIEW
+  CREDIT_QUERY
+  CREDIT_APPROVED
+  CREDIT_DECLINED
+  IC_IN_REVIEW
+  IC_QUERY
+  IC_APPROVED
+  IC_REJECTED
+  PENDING_MD
+  MD_APPROVED
+  MD_REJECTED
+  PENDING_DISBURSEMENT
+  DISBURSED
+  WITHDRAWN
+}
+
+// Header fields only (spec Section 8.1 loan_applications). Customer is kept
+// as inline fields for Step 2 — split into its own `customers` table in
+// Step 3 alongside KYC, per the build order, once the KYC checklist needs
+// to reference it independently of a single application.
+model Application {
+  id               String            @id @default(uuid())
+  appNumber        String            @unique
+  status           ApplicationStatus @default(DRAFT)
+  branch           String
+  productName      String
+  customerName     String
+  customerPhone    String
+  requestedAmount  Decimal           @db.Decimal(14, 2)
+  tenorMonths      Int
+  purpose          String
+
+  createdById      String
+  createdBy        User              @relation("ApplicationCreatedBy", fields: [createdById], references: [id])
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@map("loan_applications")
+}
+
+// Backs LN-{YYYY}-{SEQUENCE} generation (spec Section 8.2) with an atomic
+// per-year counter row, avoiding the race condition of a plain max()+1 scan
+// under concurrent submissions.
+model AppNumberCounter {
+  year    Int @id
+  lastSeq Int @default(0)
+
+  @@map("app_number_counters")
+}

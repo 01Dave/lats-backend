@@ -1,0 +1,29 @@
+import { Response } from "express";
+import { Request } from "express";
+import { catchAsync } from "../middleware/catch-async";
+import * as applicationService from "../services/application-service";
+
+export const createApplicationController = catchAsync(async (req: Request, res: Response) => {
+  const application = await applicationService.createApplication(req.user!, req.body);
+  res.status(201).json(application);
+});
+
+export const listApplicationsController = catchAsync(async (req: Request, res: Response) => {
+  const applications = await applicationService.listApplications(req.user!);
+  res.status(200).json(applications);
+});
+
+export const getApplicationController = catchAsync(async (req: Request, res: Response) => {
+  const application = await applicationService.getApplicationById(req.user!, req.params.id);
+  res.status(200).json(application);
+});
+
+export const submitApplicationController = catchAsync(async (req: Request, res: Response) => {
+  const application = await applicationService.submitApplication(req.user!, req.params.id);
+  res.status(200).json(application);
+});
+
+export const withdrawApplicationController = catchAsync(async (req: Request, res: Response) => {
+  const application = await applicationService.withdrawApplication(req.user!, req.params.id, req.body.comment);
+  res.status(200).json(application);
+});

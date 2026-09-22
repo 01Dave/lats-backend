@@ -8,6 +8,7 @@ interface EnvConfig {
   databaseUrl: string;
   jwtSecret: string;
   jwtExpiresIn: string;
+  fileStorageDir: string;
 }
 
 /**
@@ -28,4 +29,7 @@ export const env: EnvConfig = {
   databaseUrl: required("DATABASE_URL"),
   jwtSecret: required("JWT_SECRET"),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "12h",
+  // Local-disk document storage (Step 3 decision — see file-storage.ts for
+  // why this sits behind an interface rather than being used directly).
+  fileStorageDir: process.env.FILE_STORAGE_DIR ?? "./uploads",
 };

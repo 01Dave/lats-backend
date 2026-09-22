@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { Permission } from "../config/roles";
 
 /**
- * Usage: router.post('/x', authMiddleware, requirePermission('kyc:verify'), controller)
+ * Usage: router.post('/x', authMiddleware, requirePermission('document:verify'), controller)
  * Must run AFTER authMiddleware — reads req.user.permissions.
  */
 export function requirePermission(permission: Permission) {

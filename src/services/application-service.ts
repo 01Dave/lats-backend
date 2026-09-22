@@ -25,9 +25,10 @@ export async function createApplication(actor: AuthenticatedUser, input: CreateA
       productName: input.productName,
       customerName: input.customerName,
       customerPhone: input.customerPhone,
-      // Prisma accepts a plain number for a Decimal column at runtime and
-      // converts it; avoiding Prisma.Decimal here keeps this file free of
-      // a dependency on the generated client's namespace exports.
+      // Prisma accepts a plain number for a Decimal column at runtime;
+      // avoiding Prisma.Decimal keeps this file free of a dependency on
+      // the generated client's namespace exports (the sandbox's stub
+      // client doesn't expose it when it can't reach its engine binary).
       requestedAmount: input.requestedAmount,
       tenorMonths: input.tenorMonths,
       purpose: input.purpose,

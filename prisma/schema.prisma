@@ -18,9 +18,6 @@ enum RoleName {
   admin
 }
 
-// Step 2 adds Application + its status enum + an atomic app-number counter.
-// KycChecklistItem, Document, Comment, Approval, Disbursement, AuditEvent,
-// LoanProduct are added in Steps 3-5 per the build order.
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -60,10 +57,12 @@ enum ApplicationStatus {
   WITHDRAWN
 }
 
-// Header fields only (spec Section 8.1 loan_applications). Customer is kept
-// as inline fields for Step 2 — split into its own `customers` table in
-// Step 3 alongside KYC, per the build order, once the KYC checklist needs
-// to reference it independently of a single application.
+// Header fields (spec Section 8.1 loan_applications). Customer/product are
+// flat fields, not their own tables — this is a digital tracker for a
+// physical paper-trail process (per-application confirmation, no BVN, no
+// digital KYC verification), so there's no ongoing identity or per-product
+// configuration to normalize. Documents ARE kept, independent of KYC —
+// see Document below.
 model Application {
   id               String            @id @default(uuid())
   appNumber        String            @unique
@@ -79,10 +78,40 @@ model Application {
   createdById      String
   createdBy        User              @relation("ApplicationCreatedBy", fields: [createdById], references: [id])
 
+  documents        Document[]
+
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
   @@map("loan_applications")
+}
+
+enum DocumentStatus {
+  pending
+  verified
+  rejected
+  expired
+}
+
+// Vetted independently of any checklist — whoever reviews a document just
+// flips its status directly. docType is a free descriptor, not tied to
+// any template (there is no KYC checklist template in this version of
+// the system). Still versioned (FR-22/23 intent) — a re-upload of the
+// same docType keeps the old version rather than overwriting it.
+model Document {
+  id             String         @id @default(uuid())
+  applicationId  String
+  application    Application    @relation(fields: [applicationId], references: [id])
+  docType        String
+  filename       String
+  storagePath    String
+  version        Int            @default(1)
+  current        Boolean        @default(true)
+  uploadedById   String
+  status         DocumentStatus @default(pending)
+  uploadedAt     DateTime       @default(now())
+
+  @@map("documents")
 }
 
 // Backs LN-{YYYY}-{SEQUENCE} generation (spec Section 8.2) with an atomic

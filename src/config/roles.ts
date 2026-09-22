@@ -11,10 +11,9 @@ export type Permission =
   | "application:view:branch"
   | "application:view:all"
   | "application:withdraw"
-  | "customer:edit"
   | "document:upload"
   | "document:view"
-  | "kyc:verify"
+  | "document:verify"
   | "hod:approve"
   | "credit:review"
   | "credit:approve"
@@ -36,21 +35,41 @@ export type RoleName =
   | "admin";
 
 export const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
-  sales: ["application:create", "application:view:own", "application:withdraw", "document:upload", "comment:create"],
-  hod: [
-    "application:view:branch",
-    "customer:edit",
+  sales: [
+    "application:create",
+    "application:view:own",
+    "application:withdraw",
     "document:upload",
     "document:view",
-    "kyc:verify",
+    "comment:create",
+  ],
+  hod: [
+    "application:view:branch",
+    "document:upload",
+    "document:view",
+    "document:verify",
     "hod:approve",
     "comment:create",
   ],
-  credit_review: ["application:view:branch", "credit:review", "credit:approve", "document:view", "comment:create"],
-  internal_control: ["application:view:all", "control:verify", "control:approve", "document:view", "comment:create"],
+  credit_review: [
+    "application:view:branch",
+    "credit:review",
+    "credit:approve",
+    "document:view",
+    "document:verify",
+    "comment:create",
+  ],
+  internal_control: [
+    "application:view:all",
+    "control:verify",
+    "control:approve",
+    "document:view",
+    "document:verify",
+    "comment:create",
+  ],
   md: ["application:view:all", "approval:md", "document:view", "comment:create"],
   finance: ["application:view:all", "disbursement:record", "document:view"],
-  admin: ["admin:users", "admin:config", "application:view:all", "application:withdraw"],
+  admin: ["admin:users", "admin:config", "application:view:all", "application:withdraw", "document:verify"],
 };
 
 export function permissionsForRole(role: RoleName): Permission[] {

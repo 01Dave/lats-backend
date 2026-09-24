@@ -2,10 +2,6 @@
 
 Standalone Loan Application Tracking System backend for the bank.
 Workflow: Sales -> HOD -> Credit Review -> Internal Control -> MD -> Finance.
-
-Independent of the Insurance_BS project: separate codebase, PostgreSQL
-(not MongoDB), separate deployment.
-
 ## Stack
 Node.js, Express, TypeScript, PostgreSQL via Prisma, JWT auth, Joi validation.
 

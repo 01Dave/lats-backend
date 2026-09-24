@@ -30,6 +30,8 @@ model User {
   updatedAt    DateTime @updatedAt
 
   applicationsCreated Application[] @relation("ApplicationCreatedBy")
+  approvals           Approval[]
+  comments            Comment[]
 
   @@map("users")
 }
@@ -75,10 +77,19 @@ model Application {
   tenorMonths      Int
   purpose          String
 
+  // Physical KYC confirmation (paper-trail process — no digital checklist).
+  // Set as a side effect of HOD's approval decision, not a separate
+  // endpoint — see approval-service.ts hodDecision().
+  kycConfirmed     Boolean           @default(false)
+  kycConfirmedById String?
+  kycConfirmedAt   DateTime?
+
   createdById      String
   createdBy        User              @relation("ApplicationCreatedBy", fields: [createdById], references: [id])
 
   documents        Document[]
+  approvals        Approval[]
+  comments         Comment[]
 
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -122,4 +133,58 @@ model AppNumberCounter {
   lastSeq Int @default(0)
 
   @@map("app_number_counters")
+}
+
+enum ApprovalStage {
+  HOD
+  CREDIT_REVIEW
+  INTERNAL_CONTROL
+  MD
+  WITHDRAWAL
+}
+
+enum ApprovalDecision {
+  APPROVE
+  QUERY
+  DECLINE
+  REJECT
+  RESOLVE
+  WITHDRAW
+}
+
+// One row per decision event — the structured, queryable record behind
+// the state machine's transitions (Section 6.2). `comment` holds whatever
+// text came with the decision (mandatory for QUERY/DECLINE/REJECT/WITHDRAW,
+// optional for APPROVE/RESOLVE... actually RESOLVE requires one too, see
+// approval-service.ts) rather than duplicating it into a separate Comment
+// row. `stage` is null for WITHDRAWAL, which isn't owned by any one
+// approval stage.
+model Approval {
+  id              String            @id @default(uuid())
+  applicationId   String
+  application     Application       @relation(fields: [applicationId], references: [id])
+  stage           ApprovalStage?
+  decision        ApprovalDecision
+  actorId         String
+  actor           User              @relation(fields: [actorId], references: [id])
+  comment         String?
+  resultingStatus ApplicationStatus
+  createdAt       DateTime          @default(now())
+
+  @@map("approvals")
+}
+
+// Free-standing case notes — separate from the comment attached to a
+// specific decision (which lives on Approval.comment above). General
+// commentary anyone with comment:create can add at any point.
+model Comment {
+  id            String      @id @default(uuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id])
+  authorId      String
+  author        User        @relation(fields: [authorId], references: [id])
+  body          String
+  createdAt     DateTime    @default(now())
+
+  @@map("comments")
 }

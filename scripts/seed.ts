@@ -22,6 +22,8 @@ async function main(): Promise<void> {
   for (const u of SEED_USERS) {
     await prisma.user.upsert({
       where: { email: u.email },
+      // update runs on every re-seed too, so an existing seeded user's
+      // branch gets corrected if this list changes, not just on first create.
       update: { branch: u.branch ?? null },
       create: { email: u.email, name: u.name, role: u.role, passwordHash, branch: u.branch },
     });

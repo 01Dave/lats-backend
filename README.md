@@ -9,20 +9,31 @@ Independent of the Insurance_BS project: separate codebase, PostgreSQL
 ## Stack
 Node.js, Express, TypeScript, PostgreSQL via Prisma, JWT auth, Joi validation.
 
-## Status: Phase 1, Steps 1-2 + Documents
-Auth + RBAC, Application CRUD + workflow state machine, and independent
-Document upload/verify/download are implemented. Comments, the four
-approval-decision endpoints (HOD/Credit Review/Internal Control/MD),
-disbursement, and audit log are not yet implemented — see
+## Status: Phase 1, Steps 1-4
+Auth + RBAC, Application CRUD + workflow state machine, independent
+Document upload/verify/download, comments, and all four approval-decision
+endpoints (HOD/Credit Review/Internal Control/MD) are implemented.
+Disbursement and audit log are not yet implemented — see
 `LATS_Architecture_Brief.md` for the full build order.
+
+**KYC confirmation**: no digital checklist — physical KYC verification
+is confirmed by HOD as a single `kycConfirmed: true` flag folded into
+their approval decision (`POST /applications/:id/hod-decision`), not a
+separate endpoint or checklist.
+
+**Approval history**: every decision (approve/query/decline/reject/
+resolve/withdraw) is recorded as a row in the new `Approval` table
+(`GET /applications/:id/approvals`) — this is the structured audit trail
+of who decided what and when. `Comment` is separate: free-standing case
+notes via `POST /applications/:id/comments`, not tied to any specific
+decision.
 
 **Scope note**: this system is a digital tracker for a physical
 paper-trail process. There is no BVN, no `Customer`/`LoanProduct` table,
-and no digital KYC checklist — KYC verification happens off-system, on
-paper. Documents CAN be uploaded and stored, and are vetted independently
-via a simple `status` field (pending/verified/rejected/expired) on each
-document — but nothing in the workflow currently depends on that status;
-it's informational tracking, not a gate.
+and no digital KYC checklist. Documents CAN be uploaded and stored, and
+are vetted independently via a simple `status` field
+(pending/verified/rejected/expired) on each document — informational
+tracking, not a gate.
 
 **If you already migrated a Customer/LoanProduct/KYC-checklist schema**:
 that was reverted. `prisma migrate dev` will detect the schema changed

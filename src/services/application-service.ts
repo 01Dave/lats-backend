@@ -117,6 +117,11 @@ export async function submitApplication(actor: AuthenticatedUser, id: string) {
   });
 }
 
+/**
+ * Records the withdrawal comment as an Approval row (stage: null — not
+ * owned by any approval stage) so it's actually persisted, rather than
+ * validated by the state machine and then discarded.
+ */
 export async function withdrawApplication(actor: AuthenticatedUser, id: string, comment: string) {
   const application = await getApplicationById(actor, id);
 
@@ -127,8 +132,33 @@ export async function withdrawApplication(actor: AuthenticatedUser, id: string, 
     comment,
   });
 
-  return prisma.application.update({
-    where: { id },
-    data: { status: result.status },
+  return prisma.$transaction(async (
+    // Explicit `any`, not implicit: the sandbox's stub Prisma client (see
+    // notes elsewhere in this project on prisma generate needing network
+    // access to its engine binary) types the whole client as `any`, which
+    // makes $transaction's callback parameter uninferrable and trips
+    // noImplicitAny. On a machine with a fully generated client this
+    // would infer as Prisma.TransactionClient automatically; this
+    // annotation is only here to satisfy the stub.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tx: any,
+  ) => {
+    const updated = await tx.application.update({
+      where: { id },
+      data: { status: result.status },
+    });
+
+    await tx.approval.create({
+      data: {
+        applicationId: id,
+        stage: "WITHDRAWAL",
+        decision: "WITHDRAW",
+        actorId: actor.id,
+        comment,
+        resultingStatus: result.status,
+      },
+    });
+
+    return updated;
   });
 }

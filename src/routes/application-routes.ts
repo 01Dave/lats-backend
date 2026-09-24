@@ -6,6 +6,14 @@ import { uploadSingleDocument } from "../middleware/upload-middleware";
 import { createApplicationSchema, withdrawSchema } from "../validators/application-validator";
 import { setDocumentStatusSchema } from "../validators/document-validator";
 import {
+  hodDecisionSchema,
+  creditDecisionSchema,
+  internalControlDecisionSchema,
+  mdDecisionSchema,
+  resolveQuerySchema,
+} from "../validators/approval-validator";
+import { addCommentSchema } from "../validators/comment-validator";
+import {
   createApplicationController,
   listApplicationsController,
   getApplicationController,
@@ -18,6 +26,15 @@ import {
   downloadDocumentController,
   setDocumentStatusController,
 } from "../api/document-controller";
+import {
+  hodDecisionController,
+  creditDecisionController,
+  internalControlDecisionController,
+  mdDecisionController,
+  resolveQueryController,
+  listApprovalsController,
+} from "../api/approval-controller";
+import { addCommentController, listCommentsController } from "../api/comment-controller";
 
 const router = Router();
 
@@ -59,5 +76,47 @@ router.patch(
   validateBody(setDocumentStatusSchema),
   setDocumentStatusController,
 );
+
+// ---------- Approval decisions ----------
+// Each endpoint is gated on the permission that identifies the stage
+// role; the specific decision's legality (right status, right actor,
+// comment present when required) is still enforced by the state machine
+// itself inside approval-service.ts — these permission checks are a
+// coarser first gate, not a duplicate of that logic.
+router.post(
+  "/:id/hod-decision",
+  requirePermission("hod:approve"),
+  validateBody(hodDecisionSchema),
+  hodDecisionController,
+);
+router.post(
+  "/:id/credit-decision",
+  requirePermission("credit:review"),
+  validateBody(creditDecisionSchema),
+  creditDecisionController,
+);
+router.post(
+  "/:id/internal-control-decision",
+  requirePermission("control:verify"),
+  validateBody(internalControlDecisionSchema),
+  internalControlDecisionController,
+);
+router.post(
+  "/:id/md-decision",
+  requirePermission("approval:md"),
+  validateBody(mdDecisionSchema),
+  mdDecisionController,
+);
+// No requirePermission wrapper — one endpoint resolves any of the three
+// query states, and who's allowed to call it depends on WHICH query
+// state the application is in (Sales for HOD_QUERY, HOD for
+// CREDIT_QUERY, Credit Review for IC_QUERY). The state machine's own
+// actor check is the real gate here.
+router.post("/:id/resolve-query", validateBody(resolveQuerySchema), resolveQueryController);
+router.get("/:id/approvals", listApprovalsController);
+
+// ---------- Comments ----------
+router.get("/:id/comments", listCommentsController);
+router.post("/:id/comments", requirePermission("comment:create"), validateBody(addCommentSchema), addCommentController);
 
 export default router;

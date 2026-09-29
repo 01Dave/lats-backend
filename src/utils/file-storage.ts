@@ -30,7 +30,11 @@ export async function saveFile(applicationId: string, originalFilename: string, 
 
   await fs.writeFile(fullPath, buffer);
 
-  return path.join(applicationId, safeName);
+  // posix join on purpose: the value is persisted in the database, so it must
+  // not depend on the OS the server happens to run on (path.join gives
+  // backslashes on Windows, which breaks if uploads later move to Linux).
+  // path.join in getFile() reads either separator fine on Windows.
+  return path.posix.join(applicationId, safeName);
 }
 
 export async function getFile(storagePath: string): Promise<Buffer> {

@@ -1,13 +1,32 @@
 openapi: 3.0.3
 info:
   title: LATS API — Loan Application Tracking System
-  version: "1.0.0"
+  version: "0.4.0"
   description: >
-    API contract for LATS Phase 1. Six-stage workflow: Sales → HOD → Credit Review
-    → Internal Control → MD → Finance. All state transitions are enforced
-    server-side per the allowed-transitions table in the LATS specification —
-    the frontend should treat `status` and `permissions` on each response as the
-    source of truth for which actions to show, not hardcode role logic.
+    Contract for the endpoints that are implemented today (Phase 1, Steps 1–4).
+    Six-stage workflow: Sales → HOD → Credit Review → Internal Control → MD →
+    Finance. Every status transition is enforced server-side by the workflow
+    state machine; the frontend should treat `status` and the user's
+    `permissions` as the source of truth for which actions to show.
+
+
+    LATS is a digital tracker for a process that stays physical for identity and
+    KYC checks. There is no customer record, product catalog, BVN, or KYC
+    checklist; KYC is confirmed by HOD with a single `kycConfirmed` flag on the
+    HOD approval.
+
+
+    **Status chaining.** Some transitions pass through an intermediate status
+    and land on the next stage in one call. Responses never show the
+    intermediate value: `submit` returns `HOD_IN_REVIEW` (not `SUBMITTED`); an
+    HOD approval returns `CREDIT_IN_REVIEW` (not `HOD_APPROVED`); a Credit Review
+    approval returns `IC_IN_REVIEW`; an Internal Control approval returns
+    `PENDING_MD`; an MD approval returns `PENDING_DISBURSEMENT`.
+
+
+    **Not implemented yet:** application editing (`PATCH /applications/{id}`),
+    disbursement, audit-log endpoint, PDF export, reports, admin/user
+    management.
 servers:
   - url: /api/v1
 
@@ -15,22 +34,36 @@ security:
   - bearerAuth: []
 
 tags:
+  - name: Health
   - name: Auth
   - name: Applications
-  - name: KYC
-  - name: Documents
-  - name: Comments
   - name: Approvals
-  - name: Disbursement
-  - name: Reports
-  - name: Admin
+  - name: Comments
+  - name: Documents
 
 paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness check (mounted at the server root, not under /api/v1)
+      security: []
+      servers:
+        - url: /
+      responses:
+        "200":
+          description: Server is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
   # ---------- AUTH ----------
   /auth/login:
     post:
       tags: [Auth]
-      summary: Authenticate with office email and password
+      summary: Authenticate with email and password
       security: []
       requestBody:
         required: true
@@ -41,72 +74,80 @@ paths:
               required: [email, password]
               properties:
                 email: { type: string, format: email }
-                password: { type: string, format: password }
+                password: { type: string }
       responses:
         "200":
-          description: Login successful
+          description: Authenticated
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  token: { type: string }
-                  user: { $ref: "#/components/schemas/User" }
-        "401":
-          description: Invalid credentials
-          content:
-            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+                  token: { type: string, description: JWT; send as `Authorization Bearer <token>` }
+                  expiresIn: { type: string, example: 12h }
+                  user:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      email: { type: string }
+                      name: { type: string }
+                      role: { $ref: "#/components/schemas/Role" }
+                      permissions:
+                        type: array
+                        items: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
         "423":
-          description: Account locked (failed-login lockout, FR-04)
+          description: Account is inactive (`ACCOUNT_INACTIVE`)
           content:
-            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /auth/me:
     get:
       tags: [Auth]
-      summary: Current authenticated user and permissions
+      summary: The authenticated user
       responses:
         "200":
-          description: OK
+          description: Current user (note — `name` is not included here)
           content:
-            application/json: { schema: { $ref: "#/components/schemas/User" } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  email: { type: string }
+                  role: { $ref: "#/components/schemas/Role" }
+                  branch: { type: string, nullable: true }
+                  permissions:
+                    type: array
+                    items: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
 
   # ---------- APPLICATIONS ----------
   /applications:
     get:
       tags: [Applications]
-      summary: List applications (role-scoped work queue)
+      summary: List applications visible to the caller
       description: >
-        FR-13. Scope is enforced server-side per role: Sales sees own
-        applications; HOD/Credit Review see branch or assigned cases;
-        Internal Control/MD/Finance/Admin see bank-wide as policy allows.
-      parameters:
-        - name: status
-          in: query
-          schema: { type: array, items: { $ref: "#/components/schemas/Status" } }
-        - name: branch
-          in: query
-          schema: { type: string }
-        - name: page
-          in: query
-          schema: { type: integer, default: 1 }
-        - name: pageSize
-          in: query
-          schema: { type: integer, default: 20 }
+        Scoped server-side by permission: `application:view:own` (Sales — only
+        applications they created), `application:view:branch` (HOD, Credit
+        Review — same branch), `application:view:all` (Internal Control, MD,
+        Finance, Admin). Returns a bare array — no pagination or filtering yet.
+        Newest first.
       responses:
         "200":
-          description: OK
+          description: Applications
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  items: { type: array, items: { $ref: "#/components/schemas/ApplicationSummary" } }
-                  total: { type: integer }
+                type: array
+                items: { $ref: "#/components/schemas/Application" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
     post:
       tags: [Applications]
-      summary: Create a new loan application (draft)
-      description: "Requires application:create. FR-10, FR-11 — Sales only."
+      summary: Create an application (status DRAFT)
+      description: Requires `application:create` (Sales).
       requestBody:
         required: true
         content:
@@ -116,123 +157,307 @@ paths:
         "201":
           description: Created
           content:
-            application/json: { schema: { $ref: "#/components/schemas/Application" } }
-        "409":
-          description: Possible duplicate customer detected (FR-15) — non-blocking warning returned, not an error
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
 
   /applications/{id}:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
     get:
       tags: [Applications]
-      summary: Get full application detail
-      description: "Requires application:view:own|branch|all depending on role."
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
+      summary: Get one application
+      description: An application outside the caller's visibility scope returns 404, not 403.
       responses:
         "200":
-          description: OK
-          content:
-            application/json: { schema: { $ref: "#/components/schemas/Application" } }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-    patch:
-      tags: [Applications]
-      summary: Update application header fields (pre-approval only)
-      description: >
-        Editable only while owned by the requesting role's stage. Approved
-        sections are locked; edits after approval require admin override
-        (logged to audit_events per FR-70).
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/ApplicationUpdateRequest" }
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json: { schema: { $ref: "#/components/schemas/Application" } }
-        "423":
-          description: Section locked — approved and not editable without admin override
-
-  /applications/{id}/submit:
-    post:
-      tags: [Applications]
-      summary: Sales submits draft to HOD queue
-      description: "DRAFT → SUBMITTED. Actor: Sales. Comment not required."
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
-      responses:
-        "200": { description: "Status now SUBMITTED", content: { application/json: { schema: { $ref: "#/components/schemas/Application" } } } }
-        "400": { description: "Missing required header fields" }
-
-  /applications/{id}/customer:
-    patch:
-      tags: [Applications]
-      summary: Capture or edit customer onboarding profile
-      description: "FR-20. Actor: HOD."
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/Customer" }
-      responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Customer" } } } }
-
-  # ---------- KYC ----------
-  /applications/{id}/kyc-checklist:
-    get:
-      tags: [KYC]
-      summary: Get KYC checklist for this application's product
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
-      responses:
-        "200":
-          description: OK
+          description: The application
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/KycChecklistItem" } }
+              schema: { $ref: "#/components/schemas/Application" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
-  /applications/{id}/kyc-checklist/{itemId}:
-    patch:
-      tags: [KYC]
-      summary: Mark a checklist item verified
-      description: "FR-24. Actor: HOD. Requires kyc:verify."
-      parameters:
-        - { $ref: "#/components/parameters/AppId" }
-        - name: itemId
-          in: path
-          required: true
-          schema: { type: string }
+  /applications/{id}/submit:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      tags: [Applications]
+      summary: Submit a draft to HOD
+      description: >
+        Only the Sales user who created the application can submit it (anyone
+        else gets 404). Returns status `HOD_IN_REVIEW`. No request body.
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidTransition" }
+
+  /applications/{id}/withdraw:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      tags: [Applications]
+      summary: Withdraw an application from any open status
+      description: Requires `application:withdraw` (Sales, Admin). Recorded in the approval history.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [comment]
               properties:
-                verified: { type: boolean }
+                comment: { type: string, minLength: 1 }
       responses:
         "200":
-          description: OK
+          description: Withdrawn (status `WITHDRAWN`)
           content:
-            application/json: { schema: { $ref: "#/components/schemas/KycChecklistItem" } }
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidTransition" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  # ---------- APPROVAL DECISIONS ----------
+  /applications/{id}/hod-decision:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      tags: [Approvals]
+      summary: HOD decision (from HOD_IN_REVIEW)
+      description: >
+        Requires `hod:approve`. `approve` requires `kycConfirmed: true`
+        (physical KYC checked) or the call is rejected with 422; on success it
+        records who confirmed and when, and returns `CREDIT_IN_REVIEW`. `query`
+        returns `HOD_QUERY` and needs a comment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, query] }
+                comment: { type: string, minLength: 1 }
+                kycConfirmed: { type: boolean }
+      responses:
+        "200": { $ref: "#/components/responses/ApplicationUpdated" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidTransition" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /applications/{id}/credit-decision:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      tags: [Approvals]
+      summary: Credit Review decision (from CREDIT_IN_REVIEW)
+      description: >
+        Requires `credit:review`. `approve` returns `IC_IN_REVIEW`; `query`
+        returns `CREDIT_QUERY`; `decline` returns `CREDIT_DECLINED` (closed).
+        `query` and `decline` need a comment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, query, decline] }
+                comment: { type: string, minLength: 1 }
+      responses:
+        "200": { $ref: "#/components/responses/ApplicationUpdated" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidTransition" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /applications/{id}/internal-control-decision:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      tags: [Approvals]
+      summary: Internal Control decision (from IC_IN_REVIEW)
+      description: >
+        Requires `control:verify`. `approve` returns `PENDING_MD`; `query`
+        returns `IC_QUERY`; `reject` returns `IC_REJECTED` (closed). `query`
+        and `reject` need a comment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, query, reject] }
+                comment: { type: string, minLength: 1 }
+      responses:
+        "200": { $ref: "#/components/responses/ApplicationUpdated" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidTransition" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /applications/{id}/md-decision:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      tags: [Approvals]
+      summary: MD decision (from PENDING_MD)
+      description: >
+        Requires `approval:md`. `approve` returns `PENDING_DISBURSEMENT`;
+        `reject` returns `MD_REJECTED` (closed) and needs a comment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                comment: { type: string, minLength: 1 }
+      responses:
+        "200": { $ref: "#/components/responses/ApplicationUpdated" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidTransition" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /applications/{id}/resolve-query:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      tags: [Approvals]
+      summary: Answer a query and send the case back into review
+      description: >
+        One endpoint for all three query states; which one applies is inferred
+        from the current status. The role allowed to call it depends on the
+        status: Sales for `HOD_QUERY` (returns `HOD_IN_REVIEW`), HOD for
+        `CREDIT_QUERY` (returns `CREDIT_IN_REVIEW`), Credit Review for
+        `IC_QUERY` (returns `IC_IN_REVIEW`). Any other role gets 409. Calling it
+        when the application is not in a query status returns 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment: { type: string, minLength: 1 }
+      responses:
+        "200": { $ref: "#/components/responses/ApplicationUpdated" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidTransition" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /applications/{id}/approvals:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    get:
+      tags: [Approvals]
+      summary: Decision history for an application (oldest first)
+      description: >
+        One row per decision, including query resolutions and withdrawal. Use
+        this for a case timeline.
+      responses:
+        "200":
+          description: Decision history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Approval" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------- COMMENTS ----------
+  /applications/{id}/comments:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    get:
+      tags: [Comments]
+      summary: Free-standing case notes (oldest first)
+      description: Separate from the comment attached to a decision, which is on the approval history.
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Comment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Comments]
+      summary: Add a case note
+      description: Requires `comment:create`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1 }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Comment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
 
   # ---------- DOCUMENTS ----------
   /applications/{id}/documents:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
     get:
       tags: [Documents]
-      summary: List documents on the application
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
+      summary: List documents, all versions
+      description: Requires `document:view`. Ordered by `docType`, then newest version first.
       responses:
         "200":
-          description: OK
+          description: Documents
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/Document" } }
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Document" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
     post:
       tags: [Documents]
-      summary: Upload a document (multipart)
-      description: "FR-22, FR-23. Accepts PDF, JPG, PNG. Versioned — latest marked current."
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
+      summary: Upload a document
+      description: >
+        Requires `document:upload`. PDF, JPG or PNG, up to 10 MB. Uploading the
+        same `docType` again creates a new version and marks the previous one
+        `current: false`; nothing is overwritten. New documents start as
+        `pending`.
       requestBody:
         required: true
         content:
@@ -242,232 +467,66 @@ paths:
               required: [file, docType]
               properties:
                 file: { type: string, format: binary }
-                docType: { type: string }
+                docType:
+                  type: string
+                  description: Free text label, e.g. "Government ID". Not validated against a list.
       responses:
         "201":
-          description: Created
-          content:
-            application/json: { schema: { $ref: "#/components/schemas/Document" } }
-
-  # ---------- COMMENTS ----------
-  /applications/{id}/comments:
-    get:
-      tags: [Comments]
-      summary: Get comment thread (immutable, timestamped — FR-43)
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
-      responses:
-        "200":
-          description: OK
+          description: Uploaded
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/Comment" } }
-    post:
-      tags: [Comments]
-      summary: Post a comment, query, or resolution
+              schema: { $ref: "#/components/schemas/Document" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /applications/{id}/documents/{documentId}:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+      - name: documentId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Documents]
+      summary: Download a document
+      description: Requires `document:view`. Returns the file as an attachment.
+      responses:
+        "200":
+          description: File bytes
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Documents]
+      summary: Set a document's review status
       description: >
-        FR-40–42. A `type: query` posted by HOD/Credit Review/Internal Control
-        also transitions the application status (HOD_QUERY / CREDIT_QUERY /
-        IC_QUERY) — comment is mandatory in that case.
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
+        Requires `document:verify` (HOD, Credit Review, Internal Control,
+        Admin). Independent of the workflow — nothing else depends on this
+        status.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/CommentCreateRequest" }
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json: { schema: { $ref: "#/components/schemas/Comment" } }
-
-  # ---------- APPROVALS (one endpoint per stage gate) ----------
-  /applications/{id}/hod-decision:
-    post:
-      tags: [Approvals]
-      summary: HOD approves, queries, or rejects onboarding/KYC
-      description: >
-        FR-25. Requires hod:approve. Approve requires all mandatory KYC
-        checklist items verified (workflow rule 1). Query/reject require
-        a non-empty comment.
-        HOD_IN_REVIEW → HOD_APPROVED | HOD_QUERY | (reject, closed)
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
-      requestBody:
-        required: true
-        content:
-          application/json: { schema: { $ref: "#/components/schemas/DecisionRequest" } }
-      responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
-        "422": { description: "Mandatory checklist items incomplete, or comment missing on query/reject" }
-
-  /applications/{id}/credit-review:
-    post:
-      tags: [Approvals]
-      summary: Credit Review enters assessment and approves, queries, or declines
-      description: >
-        FR-30–32. Requires credit:review / credit:approve.
-        CREDIT_IN_REVIEW → CREDIT_APPROVED | CREDIT_QUERY | CREDIT_DECLINED
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
-      requestBody:
-        required: true
-        content:
-          application/json: { schema: { $ref: "#/components/schemas/CreditReviewRequest" } }
-      responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
-        "422": { description: "Comment missing on query/decline" }
-
-  /applications/{id}/internal-control-decision:
-    post:
-      tags: [Approvals]
-      summary: Internal Control approves, queries, or rejects on compliance grounds
-      description: >
-        FR-33, FR-53. Requires control:verify / control:approve.
-        IC_IN_REVIEW → IC_APPROVED | IC_QUERY | IC_REJECTED
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
-      requestBody:
-        required: true
-        content:
-          application/json: { schema: { $ref: "#/components/schemas/DecisionRequest" } }
-      responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
-        "422": { description: "Comment missing on query/reject" }
-
-  /applications/{id}/md-decision:
-    post:
-      tags: [Approvals]
-      summary: MD gives final approve/reject
-      description: >
-        FR-52. Requires approval:md. Only reachable once status = PENDING_MD
-        (i.e. Internal Control has approved).
-        PENDING_MD → MD_APPROVED | MD_REJECTED
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
-      requestBody:
-        required: true
-        content:
-          application/json: { schema: { $ref: "#/components/schemas/DecisionRequest" } }
-      responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
-        "422": { description: "Comment missing on reject" }
-
-  # ---------- DISBURSEMENT ----------
-  /applications/{id}/disbursement:
-    post:
-      tags: [Disbursement]
-      summary: Finance records disbursement
-      description: >
-        FR-60–62. Requires disbursement:record. Only on MD_APPROVED /
-        PENDING_DISBURSEMENT applications. Duplicate recording is rejected.
-        PENDING_DISBURSEMENT → DISBURSED
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
-      requestBody:
-        required: true
-        content:
-          application/json: { schema: { $ref: "#/components/schemas/DisbursementRequest" } }
-      responses:
-        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Disbursement" } } } }
-        "409": { description: "Disbursement already recorded for this application" }
-
-  # ---------- AUDIT & EXPORT ----------
-  /applications/{id}/audit-log:
-    get:
-      tags: [Applications]
-      summary: Full append-only audit trail for the application (FR-70)
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: "#/components/schemas/DocumentStatus" }
       responses:
         "200":
-          description: OK
+          description: Updated
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/AuditEvent" } }
-
-  /applications/{id}/export/pdf:
-    get:
-      tags: [Applications]
-      summary: Export full case file to PDF (FR-73)
-      parameters: [{ $ref: "#/components/parameters/AppId" }]
-      responses:
-        "200":
-          description: PDF file
-          content:
-            application/pdf: { schema: { type: string, format: binary } }
-
-  # ---------- REPORTS ----------
-  /reports/status:
-    get:
-      tags: [Reports]
-      summary: Applications by status, branch, HOD, date range (FR-71)
-      parameters:
-        - name: branch
-          in: query
-          schema: { type: string }
-        - name: from
-          in: query
-          schema: { type: string, format: date }
-        - name: to
-          in: query
-          schema: { type: string, format: date }
-      responses:
-        "200": { description: OK }
-
-  /reports/turnaround:
-    get:
-      tags: [Reports]
-      summary: Turnaround time submitted → HOD → Credit Review → Internal Control → MD → disbursed (FR-72)
-      responses:
-        "200": { description: OK }
-
-  /reports/export:
-    get:
-      tags: [Reports]
-      summary: Export tabular report to Excel/CSV (FR-74)
-      parameters:
-        - name: format
-          in: query
-          schema: { type: string, enum: [xlsx, csv] }
-      responses:
-        "200":
-          description: File
-          content:
-            application/octet-stream: { schema: { type: string, format: binary } }
-
-  # ---------- ADMIN ----------
-  /admin/users:
-    get:
-      tags: [Admin]
-      summary: List users (FR-03)
-      responses:
-        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/User" } } } } }
-    post:
-      tags: [Admin]
-      summary: Create a user and assign role(s)
-      requestBody:
-        required: true
-        content:
-          application/json: { schema: { $ref: "#/components/schemas/UserCreateRequest" } }
-      responses:
-        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
-
-  /admin/users/{userId}:
-    patch:
-      tags: [Admin]
-      summary: Update role(s) or active flag
-      parameters:
-        - name: userId
-          in: path
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json: { schema: { $ref: "#/components/schemas/UserUpdateRequest" } }
-      responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
-
-  /admin/kyc-templates:
-    get:
-      tags: [Admin]
-      summary: List configurable KYC checklist templates per loan product (FR-21)
-      responses:
-        "200": { description: OK }
+              schema: { $ref: "#/components/schemas/Document" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
 
 components:
   securitySchemes:
@@ -481,31 +540,56 @@ components:
       name: id
       in: path
       required: true
-      schema: { type: string }
-      description: loan_applications.app_number or internal id
+      schema: { type: string, format: uuid }
 
   responses:
+    ApplicationUpdated:
+      description: The application after the decision, with its new status
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Application" }
+    Unauthorized:
+      description: Missing or invalid token (`UNAUTHENTICATED`, `INVALID_TOKEN`, `ACCOUNT_INACTIVE`, or `INVALID_CREDENTIALS` on login)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     Forbidden:
-      description: Caller's role lacks the required permission for this action
+      description: Authenticated but missing the required permission (`FORBIDDEN`)
       content:
-        application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     NotFound:
-      description: Not found
+      description: Not found, or outside the caller's visibility scope (`NOT_FOUND`)
       content:
-        application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InvalidTransition:
+      description: >
+        The workflow does not allow this action now — wrong starting status,
+        wrong role for the action, or a required comment is missing
+        (`INVALID_TRANSITION`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationError:
+      description: Request body failed validation (`VALIDATION_ERROR`); `message` lists every failing field
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
     Error:
       type: object
+      required: [code, message]
       properties:
-        code: { type: string }
+        code: { type: string, example: VALIDATION_ERROR }
         message: { type: string }
 
     Role:
       type: string
       enum: [sales, hod, credit_review, internal_control, md, finance, admin]
 
-    Status:
+    ApplicationStatus:
       type: string
       enum:
         - DRAFT
@@ -527,210 +611,87 @@ components:
         - PENDING_DISBURSEMENT
         - DISBURSED
         - WITHDRAWN
-
-    User:
-      type: object
-      properties:
-        id: { type: string }
-        email: { type: string, format: email }
-        name: { type: string }
-        roles: { type: array, items: { $ref: "#/components/schemas/Role" } }
-        branch: { type: string }
-        active: { type: boolean }
-        permissions:
-          type: array
-          items: { type: string }
-          description: "Resolved permission strings, e.g. kyc:verify, approval:md — frontend should gate UI on these, not on role name."
-
-    UserCreateRequest:
-      type: object
-      required: [email, name, roles]
-      properties:
-        email: { type: string, format: email }
-        name: { type: string }
-        roles: { type: array, items: { $ref: "#/components/schemas/Role" } }
-        branch: { type: string }
-
-    UserUpdateRequest:
-      type: object
-      properties:
-        roles: { type: array, items: { $ref: "#/components/schemas/Role" } }
-        active: { type: boolean }
-
-    Customer:
-      type: object
-      properties:
-        name: { type: string }
-        phone: { type: string }
-        idNumber: { type: string }
-        address: { type: string }
-        employmentOrBusiness: { type: string }
-        guarantor: { type: string, nullable: true }
-        duplicateWarning:
-          type: boolean
-          description: "FR-15 — set true if matching ID/phone found. Non-blocking."
+      description: >
+        Closed (no further action): CREDIT_DECLINED, IC_REJECTED, MD_REJECTED,
+        DISBURSED, WITHDRAWN. SUBMITTED, HOD_APPROVED, CREDIT_APPROVED,
+        IC_APPROVED and MD_APPROVED exist in the model but are never returned by
+        the API — they chain straight to the next stage.
 
     ApplicationCreateRequest:
       type: object
-      required: [customerName, phone, productId, requestedAmount, tenor, branch, purpose]
+      required: [branch, productName, customerName, customerPhone, requestedAmount, tenorMonths, purpose]
       properties:
-        customerName: { type: string }
-        phone: { type: string }
-        productId: { type: string }
-        requestedAmount: { type: number }
-        tenor: { type: integer, description: "months" }
-        branch: { type: string }
-        purpose: { type: string }
-
-    ApplicationUpdateRequest:
-      type: object
-      description: Partial update of header/customer/credit fields, subject to section lock rules
-      additionalProperties: true
-
-    ApplicationSummary:
-      type: object
-      properties:
-        id: { type: string }
-        appNumber: { type: string, example: "LN-2026-000042" }
-        status: { $ref: "#/components/schemas/Status" }
-        customerName: { type: string }
-        productId: { type: string }
-        requestedAmount: { type: number }
-        branch: { type: string }
-        assignedTo: { type: string }
-        updatedAt: { type: string, format: date-time }
+        branch: { type: string, minLength: 1 }
+        productName: { type: string, minLength: 1, description: Free text — there is no product catalog }
+        customerName: { type: string, minLength: 1 }
+        customerPhone: { type: string, minLength: 1 }
+        requestedAmount: { type: number, exclusiveMinimum: true, minimum: 0 }
+        tenorMonths: { type: integer, minimum: 1 }
+        purpose: { type: string, minLength: 1 }
 
     Application:
-      allOf:
-        - $ref: "#/components/schemas/ApplicationSummary"
-        - type: object
-          properties:
-            tenor: { type: integer }
-            purpose: { type: string }
-            customer: { $ref: "#/components/schemas/Customer" }
-            creditReview:
-              type: object
-              nullable: true
-              properties:
-                riskRating: { type: string }
-                recommendation: { type: string, enum: [approve, decline, refer] }
-                income: { type: number }
-                obligations: { type: number }
-                collateralNotes: { type: string }
-            internalControl:
-              type: object
-              nullable: true
-              properties:
-                complianceNotes: { type: string }
-                decision: { type: string, enum: [approve, query, reject] }
-            kycComplete: { type: boolean }
-            createdAt: { type: string, format: date-time }
-
-    KycChecklistItem:
       type: object
       properties:
-        id: { type: string }
-        item: { type: string }
-        required: { type: boolean }
-        uploaded: { type: boolean }
-        verified: { type: boolean }
-        verifiedBy: { type: string, nullable: true }
-        verifiedAt: { type: string, format: date-time, nullable: true }
-
-    Document:
-      type: object
-      properties:
-        id: { type: string }
-        docType: { type: string }
-        filename: { type: string }
-        version: { type: integer }
-        current: { type: boolean }
-        uploadedBy: { type: string }
-        uploadedAt: { type: string, format: date-time }
-        status: { type: string, enum: [pending, verified, rejected, expired] }
-        url: { type: string }
-
-    Comment:
-      type: object
-      properties:
-        id: { type: string }
-        applicationId: { type: string }
-        documentId: { type: string, nullable: true }
-        author: { type: string }
-        type: { type: string, enum: [comment, query, resolution, system] }
-        body: { type: string }
-        createdAt: { type: string, format: date-time }
-
-    CommentCreateRequest:
-      type: object
-      required: [type, body]
-      properties:
-        documentId: { type: string, nullable: true }
-        type: { type: string, enum: [comment, query, resolution] }
-        body: { type: string }
-        mentions: { type: array, items: { type: string } }
-
-    DecisionRequest:
-      type: object
-      required: [decision]
-      properties:
-        decision: { type: string, enum: [approve, query, reject] }
-        comment:
+        id: { type: string, format: uuid }
+        appNumber: { type: string, example: LN-2026-000001 }
+        status: { $ref: "#/components/schemas/ApplicationStatus" }
+        branch: { type: string }
+        productName: { type: string }
+        customerName: { type: string }
+        customerPhone: { type: string }
+        requestedAmount:
           type: string
-          nullable: true
-          description: "Required by server if decision is query or reject."
-
-    CreditReviewRequest:
-      type: object
-      required: [decision, riskRating, recommendation]
-      properties:
-        decision: { type: string, enum: [approve, query, decline] }
-        comment: { type: string, nullable: true }
-        income: { type: number }
-        obligations: { type: number }
-        collateralNotes: { type: string }
-        riskRating: { type: string }
-        recommendation: { type: string, enum: [approve, decline, refer] }
+          description: Decimal serialised as a string (e.g. "50000"). Parse before doing arithmetic.
+        tenorMonths: { type: integer }
+        purpose: { type: string }
+        kycConfirmed: { type: boolean }
+        kycConfirmedById: { type: string, format: uuid, nullable: true }
+        kycConfirmedAt: { type: string, format: date-time, nullable: true }
+        createdById: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
 
     Approval:
       type: object
       properties:
-        id: { type: string }
-        applicationId: { type: string }
-        stage: { type: string, enum: [hod, credit_review, internal_control, md] }
-        decision: { type: string }
-        approver: { type: string }
+        id: { type: string, format: uuid }
+        applicationId: { type: string, format: uuid }
+        stage:
+          type: string
+          nullable: true
+          enum: [HOD, CREDIT_REVIEW, INTERNAL_CONTROL, MD, WITHDRAWAL]
+          description: Null for query resolutions (they belong to no single stage).
+        decision:
+          type: string
+          enum: [APPROVE, QUERY, DECLINE, REJECT, RESOLVE, WITHDRAW]
+        actorId: { type: string, format: uuid }
         comment: { type: string, nullable: true }
-        decidedAt: { type: string, format: date-time }
-        resultingStatus: { $ref: "#/components/schemas/Status" }
+        resultingStatus: { $ref: "#/components/schemas/ApplicationStatus" }
+        createdAt: { type: string, format: date-time }
 
-    DisbursementRequest:
-      type: object
-      required: [amount, date, method, cbsReference]
-      properties:
-        amount: { type: number }
-        date: { type: string, format: date }
-        method: { type: string, enum: [transfer, cash, cheque] }
-        cbsReference: { type: string }
-        note: { type: string, nullable: true }
-
-    Disbursement:
-      allOf:
-        - $ref: "#/components/schemas/DisbursementRequest"
-        - type: object
-          properties:
-            id: { type: string }
-            applicationId: { type: string }
-            recordedBy: { type: string }
-            recordedAt: { type: string, format: date-time }
-
-    AuditEvent:
+    Comment:
       type: object
       properties:
-        id: { type: string }
-        entity: { type: string }
-        action: { type: string }
-        actor: { type: string }
-        timestamp: { type: string, format: date-time }
-        before: { type: object, nullable: true }
-        after: { type: object, nullable: true }
+        id: { type: string, format: uuid }
+        applicationId: { type: string, format: uuid }
+        authorId: { type: string, format: uuid }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    DocumentStatus:
+      type: string
+      enum: [pending, verified, rejected, expired]
+
+    Document:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        applicationId: { type: string, format: uuid }
+        docType: { type: string }
+        filename: { type: string, description: Original filename as uploaded }
+        storagePath: { type: string, description: Internal; not meaningful to clients }
+        version: { type: integer }
+        current: { type: boolean, description: True for the latest version of this docType }
+        uploadedById: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/DocumentStatus" }
+        uploadedAt: { type: string, format: date-time }

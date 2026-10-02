@@ -9,7 +9,7 @@ import Joi from "joi";
 // from the state machine, not 422 here.
 
 export const hodDecisionSchema = Joi.object({
-  decision: Joi.string().valid("approve", "query").required(),
+  decision: Joi.string().valid("approve", "query", "reject").required(),
   comment: Joi.string().min(1),
   kycConfirmed: Joi.boolean(),
 });

@@ -8,6 +8,7 @@ export type ApplicationStatus =
   | "HOD_IN_REVIEW"
   | "HOD_QUERY"
   | "HOD_APPROVED"
+  | "HOD_REJECTED"
   | "CREDIT_IN_REVIEW"
   | "CREDIT_QUERY"
   | "CREDIT_APPROVED"
@@ -25,6 +26,7 @@ export type ApplicationStatus =
 
 /** Statuses with no further transitions out of them (Section 6.1 "(closed)"). */
 export const CLOSED_STATUSES: ReadonlySet<ApplicationStatus> = new Set([
+  "HOD_REJECTED",
   "CREDIT_DECLINED",
   "IC_REJECTED",
   "MD_REJECTED",

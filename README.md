@@ -86,11 +86,12 @@ a Bearer token unless noted.
 - `POST /api/v1/applications` — create (Sales)
 - `GET /api/v1/applications` — list, scoped by role (own / branch / all)
 - `GET /api/v1/applications/:id`
+- `PATCH /api/v1/applications/:id` — edit, DRAFT-only, creator-only
 - `POST /api/v1/applications/:id/submit`
 - `POST /api/v1/applications/:id/withdraw` — comment required
 
 **Approval decisions**
-- `POST /api/v1/applications/:id/hod-decision` — approve (requires `kycConfirmed: true`) / query
+- `POST /api/v1/applications/:id/hod-decision` — approve (requires `kycConfirmed: true`) / query / reject
 - `POST /api/v1/applications/:id/credit-decision` — approve / query / decline
 - `POST /api/v1/applications/:id/internal-control-decision` — approve / query / reject
 - `POST /api/v1/applications/:id/md-decision` — approve / reject

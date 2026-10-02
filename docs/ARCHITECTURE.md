@@ -109,14 +109,11 @@ nothing.
 These are real gaps, not oversights hidden from you — worth resolving
 deliberately rather than discovering in production:
 
-1. **No way to edit an application after creation.** `PATCH /applications/:id`
-   doesn't exist. A query response can only be answered with a comment via
-   `resolve-query` — the underlying fields (amount, purpose, customer info)
-   can't be corrected.
-2. **HOD has no reject action.** Only approve and query exist for HOD, even
-   though the original spec describes HOD being able to reject onboarding/KYC.
-   No `HOD_REJECTED` status exists either. This needs a decision on what a
-   HOD rejection should actually do before it's built.
+1. **`PATCH /applications/:id` only works while `DRAFT`.** Once submitted,
+   there is still no way to correct a field — a query response is only a
+   comment via `resolve-query`, not an edit to the underlying data. Whether
+   editing during a query should be allowed is a separate, deliberately
+   undecided question (see project notes).
 3. **No case-owner assignment or reassignment**, and no status/branch
    filtering or pagination on `GET /applications` — it returns everything the
    caller's permission scope allows, always, unfiltered.

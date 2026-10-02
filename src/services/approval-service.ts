@@ -65,7 +65,7 @@ async function executeDecision(params: {
 }
 
 export interface HodDecisionInput {
-  decision: "approve" | "query";
+  decision: "approve" | "query" | "reject";
   comment?: string;
   kycConfirmed?: boolean;
 }
@@ -75,6 +75,10 @@ export interface HodDecisionInput {
  * decision — verification is physical, so there's no separate digital
  * checklist to gate on). Approving without kycConfirmed: true is
  * rejected before the state machine is even consulted.
+ *
+ * `reject` ends the case outright (HOD_REJECTED, closed) — added
+ * because a query alone can't handle a disqualifying problem (e.g. a
+ * fraudulent ID) that isn't something Sales can fix by resubmitting.
  */
 export async function hodDecision(actor: AuthenticatedUser, applicationId: string, input: HodDecisionInput) {
   if (input.decision === "approve") {
@@ -90,6 +94,18 @@ export async function hodDecision(actor: AuthenticatedUser, applicationId: strin
       stage: "HOD",
       decision: "APPROVE",
       extraApplicationData: { kycConfirmed: true, kycConfirmedById: actor.id, kycConfirmedAt: new Date() },
+    });
+  }
+
+  if (input.decision === "reject") {
+    return executeDecision({
+      applicationId,
+      action: "hod_reject",
+      actorId: actor.id,
+      actorRole: actor.role,
+      comment: input.comment,
+      stage: "HOD",
+      decision: "REJECT",
     });
   }
 

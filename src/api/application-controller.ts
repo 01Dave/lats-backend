@@ -18,6 +18,11 @@ export const getApplicationController = catchAsync(async (req: Request, res: Res
   res.status(200).json(application);
 });
 
+export const updateApplicationController = catchAsync(async (req: Request, res: Response) => {
+  const application = await applicationService.updateApplication(req.user!, req.params.id, req.body);
+  res.status(200).json(application);
+});
+
 export const submitApplicationController = catchAsync(async (req: Request, res: Response) => {
   const application = await applicationService.submitApplication(req.user!, req.params.id);
   res.status(200).json(application);

@@ -1,7 +1,7 @@
 import { prisma } from "../db/client";
 import { generateAppNumber } from "../utils/app-number-generator";
 import { applyAction } from "../workflow/state-machine";
-import { NotFoundError } from "../utils/errors";
+import { NotFoundError, ConflictError } from "../utils/errors";
 import { AuthenticatedUser } from "../middleware/auth-middleware";
 
 export interface CreateApplicationInput {
@@ -96,6 +96,40 @@ export async function listApplications(actor: AuthenticatedUser) {
  * DRAFT -> SUBMITTED -> (system-chained) HOD_IN_REVIEW. Only the Sales
  * user who created the application may submit it.
  */
+export interface UpdateApplicationInput {
+  branch?: string;
+  productName?: string;
+  customerName?: string;
+  customerPhone?: string;
+  requestedAmount?: number;
+  tenorMonths?: number;
+  purpose?: string;
+}
+
+/**
+ * Only the creator, only while still DRAFT — per project decision, editing
+ * mid-query (after HOD or another stage has sent it back) is a separate,
+ * not-yet-designed question and deliberately NOT handled here. A query
+ * response is still only a comment via resolve-query.
+ */
+export async function updateApplication(actor: AuthenticatedUser, id: string, input: UpdateApplicationInput) {
+  const application = await prisma.application.findUnique({ where: { id } });
+  if (!application) {
+    throw new NotFoundError("Application not found");
+  }
+  if (application.createdById !== actor.id) {
+    throw new NotFoundError("Application not found");
+  }
+  if (application.status !== "DRAFT") {
+    throw new ConflictError("Only DRAFT applications can be edited");
+  }
+
+  return prisma.application.update({
+    where: { id },
+    data: input,
+  });
+}
+
 export async function submitApplication(actor: AuthenticatedUser, id: string) {
   const application = await prisma.application.findUnique({ where: { id } });
   if (!application) {

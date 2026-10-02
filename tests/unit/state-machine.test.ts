@@ -43,6 +43,24 @@ describe("applyAction", () => {
     ).toThrow(InvalidTransitionError);
   });
 
+  it("hod_reject ends the case (closed status) and requires a comment", () => {
+    expect(() => applyAction({ currentStatus: "HOD_IN_REVIEW", action: "hod_reject", actorRole: "hod" })).toThrow(
+      InvalidTransitionError,
+    );
+
+    const result = applyAction({
+      currentStatus: "HOD_IN_REVIEW",
+      action: "hod_reject",
+      actorRole: "hod",
+      comment: "ID appears fraudulent",
+    });
+    expect(result.status).toBe("HOD_REJECTED");
+
+    expect(() =>
+      applyAction({ currentStatus: "HOD_REJECTED", action: "hod_approve", actorRole: "hod" }),
+    ).toThrow(InvalidTransitionError);
+  });
+
   it("rejects an action from the wrong starting status", () => {
     expect(() => applyAction({ currentStatus: "DRAFT", action: "hod_approve", actorRole: "hod" })).toThrow(
       InvalidTransitionError,

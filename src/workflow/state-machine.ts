@@ -18,6 +18,7 @@ export type WorkflowAction =
   | "hod_query"
   | "hod_resolve"
   | "hod_approve"
+  | "hod_reject"
   | "credit_query"
   | "credit_resolve"
   | "credit_approve"
@@ -52,6 +53,10 @@ const TRANSITIONS: Record<WorkflowAction, TransitionRule> = {
   hod_query: { from: "HOD_IN_REVIEW", to: "HOD_QUERY", actor: "hod", commentRequired: true },
   hod_resolve: { from: "HOD_QUERY", to: "HOD_IN_REVIEW", actor: "sales", commentRequired: true },
   hod_approve: { from: "HOD_IN_REVIEW", to: "HOD_APPROVED", actor: "hod", commentRequired: false },
+  // Ends the case outright — same shape as credit_decline/ic_reject. Added
+  // per project decision: a query alone can't handle a disqualifying
+  // problem (e.g. fraudulent ID) that isn't fixable by Sales resubmitting.
+  hod_reject: { from: "HOD_IN_REVIEW", to: "HOD_REJECTED", actor: "hod", commentRequired: true },
   credit_query: { from: "CREDIT_IN_REVIEW", to: "CREDIT_QUERY", actor: "credit_review", commentRequired: true },
   credit_resolve: { from: "CREDIT_QUERY", to: "CREDIT_IN_REVIEW", actor: "hod", commentRequired: true },
   credit_approve: { from: "CREDIT_IN_REVIEW", to: "CREDIT_APPROVED", actor: "credit_review", commentRequired: false },

@@ -24,9 +24,9 @@ info:
     `PENDING_MD`; an MD approval returns `PENDING_DISBURSEMENT`.
 
 
-    **Not implemented yet:** application editing (`PATCH /applications/{id}`),
-    disbursement, audit-log endpoint, PDF export, reports, admin/user
-    management.
+    **Not implemented yet:** editing an application once it's past DRAFT
+    (including after a query response), disbursement, audit-log endpoint,
+    PDF export, reports, admin/user management.
 servers:
   - url: /api/v1
 
@@ -178,6 +178,33 @@ paths:
               schema: { $ref: "#/components/schemas/Application" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Applications]
+      summary: Edit an application while it is still DRAFT
+      description: >
+        Only the Sales user who created it, and only while status is DRAFT —
+        any other status returns 409. All fields optional; send only what's
+        changing. There is no way to edit an application once it's past
+        DRAFT, including after a query response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApplicationUpdateRequest" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Application is not DRAFT (`CONFLICT`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/ValidationError" }
 
   /applications/{id}/submit:
     parameters:
@@ -237,7 +264,8 @@ paths:
         Requires `hod:approve`. `approve` requires `kycConfirmed: true`
         (physical KYC checked) or the call is rejected with 422; on success it
         records who confirmed and when, and returns `CREDIT_IN_REVIEW`. `query`
-        returns `HOD_QUERY` and needs a comment.
+        returns `HOD_QUERY` and needs a comment. `reject` returns `HOD_REJECTED`
+        (closed) and needs a comment.
       requestBody:
         required: true
         content:
@@ -246,7 +274,7 @@ paths:
               type: object
               required: [decision]
               properties:
-                decision: { type: string, enum: [approve, query] }
+                decision: { type: string, enum: [approve, query, reject] }
                 comment: { type: string, minLength: 1 }
                 kycConfirmed: { type: boolean }
       responses:
@@ -597,6 +625,7 @@ components:
         - HOD_IN_REVIEW
         - HOD_QUERY
         - HOD_APPROVED
+        - HOD_REJECTED
         - CREDIT_IN_REVIEW
         - CREDIT_QUERY
         - CREDIT_APPROVED
@@ -612,10 +641,10 @@ components:
         - DISBURSED
         - WITHDRAWN
       description: >
-        Closed (no further action): CREDIT_DECLINED, IC_REJECTED, MD_REJECTED,
-        DISBURSED, WITHDRAWN. SUBMITTED, HOD_APPROVED, CREDIT_APPROVED,
-        IC_APPROVED and MD_APPROVED exist in the model but are never returned by
-        the API — they chain straight to the next stage.
+        Closed (no further action): HOD_REJECTED, CREDIT_DECLINED, IC_REJECTED,
+        MD_REJECTED, DISBURSED, WITHDRAWN. SUBMITTED, HOD_APPROVED,
+        CREDIT_APPROVED, IC_APPROVED and MD_APPROVED exist in the model but are
+        never returned by the API — they chain straight to the next stage.
 
     ApplicationCreateRequest:
       type: object
@@ -623,6 +652,19 @@ components:
       properties:
         branch: { type: string, minLength: 1 }
         productName: { type: string, minLength: 1, description: Free text — there is no product catalog }
+        customerName: { type: string, minLength: 1 }
+        customerPhone: { type: string, minLength: 1 }
+        requestedAmount: { type: number, exclusiveMinimum: true, minimum: 0 }
+        tenorMonths: { type: integer, minimum: 1 }
+        purpose: { type: string, minLength: 1 }
+
+    ApplicationUpdateRequest:
+      type: object
+      description: Same fields as ApplicationCreateRequest, all optional — send only what's changing.
+      minProperties: 1
+      properties:
+        branch: { type: string, minLength: 1 }
+        productName: { type: string, minLength: 1 }
         customerName: { type: string, minLength: 1 }
         customerPhone: { type: string, minLength: 1 }
         requestedAmount: { type: number, exclusiveMinimum: true, minimum: 0 }

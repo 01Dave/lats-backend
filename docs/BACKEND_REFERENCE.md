@@ -3,13 +3,13 @@
 Base URL: `http://localhost:4000/api/v1` (local dev). `/health` is the one
 exception, mounted at the server root.
 
-**Implemented:** auth, application create/list/get/submit/withdraw, the four
-approval-decision endpoints, query resolution, approval history, comments,
+**Implemented:** auth, application create/edit(draft-only)/list/get/submit/withdraw, the four
+approval-decision endpoints (including HOD reject), query resolution, approval history, comments,
 document upload/verify/download.
 
-**Not implemented:** editing an application after creation, HOD rejecting
-(only approve/query exist for HOD), disbursement, a dedicated audit-log
-endpoint, reports, admin/user management, filtering or pagination on the list
+**Not implemented:** editing an application once it's past DRAFT (including
+after a query response), disbursement, a dedicated audit-log endpoint,
+reports, admin/user management, filtering or pagination on the list
 endpoint.
 
 Everything in this doc has been run against a real database with real HTTP
@@ -75,7 +75,13 @@ confirmed by HOD as a single flag on their approval, not a checklist.
 ```
 → status `WITHDRAWN`, and the comment is saved to the approval history (§5 — `stage: null`).
 
-**Not implemented:** `PATCH /applications/:id`. There is no way to edit branch/amount/tenor/purpose/customer/product after creation, including after a query response. If Save-as-Draft-then-edit or "fix and resubmit after a query" is part of the UI, it isn't backed by anything yet — flag this back if it blocks you.
+**PATCH `/applications/:id`** — Sales only, and only the user who created it. Only while `status: "DRAFT"` — attempting this on any other status returns `409 CONFLICT`. All fields optional; send only what's changing.
+```json
+{ "requestedAmount": 55000, "purpose": "Inventory and equipment" }
+```
+→ `200`, full updated `Application`.
+
+**Still not implemented:** editing an application once it's past `DRAFT` — including after a query response. A query is still only answered with a comment via `resolve-query`; the underlying fields can't be corrected mid-review. If "fix and resubmit after a query" turns out to be needed, that's a separate, not-yet-designed feature — flag it if it blocks you.
 
 **Application fields:**
 
@@ -96,9 +102,9 @@ confirmed by HOD as a single flag on their approval, not a checklist.
 
 ## 4. Statuses and transitions
 
-Full enum: `DRAFT, SUBMITTED, HOD_IN_REVIEW, HOD_QUERY, HOD_APPROVED, CREDIT_IN_REVIEW, CREDIT_QUERY, CREDIT_APPROVED, CREDIT_DECLINED, IC_IN_REVIEW, IC_QUERY, IC_APPROVED, IC_REJECTED, PENDING_MD, MD_APPROVED, MD_REJECTED, PENDING_DISBURSEMENT, DISBURSED, WITHDRAWN`
+Full enum: `DRAFT, SUBMITTED, HOD_IN_REVIEW, HOD_QUERY, HOD_APPROVED, HOD_REJECTED, CREDIT_IN_REVIEW, CREDIT_QUERY, CREDIT_APPROVED, CREDIT_DECLINED, IC_IN_REVIEW, IC_QUERY, IC_APPROVED, IC_REJECTED, PENDING_MD, MD_APPROVED, MD_REJECTED, PENDING_DISBURSEMENT, DISBURSED, WITHDRAWN`
 
-Closed (no further action): `CREDIT_DECLINED, IC_REJECTED, MD_REJECTED, DISBURSED, WITHDRAWN`
+Closed (no further action): `HOD_REJECTED, CREDIT_DECLINED, IC_REJECTED, MD_REJECTED, DISBURSED, WITHDRAWN`
 
 **`SUBMITTED`, `HOD_APPROVED`, `CREDIT_APPROVED`, `IC_APPROVED`, `MD_APPROVED` are never returned by the API.** Each one chains straight through to the next stage's `*_IN_REVIEW`/`PENDING_*` status in the same response:
 
@@ -112,7 +118,7 @@ Closed (no further action): `CREDIT_DECLINED, IC_REJECTED, MD_REJECTED, DISBURSE
 
 Build status tracking around "whatever comes back is where it is now," not around every enum value appearing as a visible step.
 
-**HOD has no reject.** Per the spec, HOD should be able to approve, query, *or reject* onboarding/KYC — but there's no `HOD_REJECTED` status and no reject action wired up; only approve and query exist today. This is a real gap between the spec and the build, not a frontend concern to work around — it needs a decision from David/the IT Head on what a HOD rejection should even mean (does it kill the case, like Credit Review's decline, or something else?).
+**HOD can now reject.** Ends the case outright (`HOD_REJECTED`, closed) — same shape as Credit Review's `decline`. Added because a query alone can't handle a disqualifying problem (e.g. a fraudulent ID) that isn't something Sales can fix by resubmitting.
 
 ---
 
@@ -122,7 +128,7 @@ Four endpoints, one per stage, each takes `{ decision, comment? }`:
 
 | Endpoint | Permission | `decision` values | Comment required for |
 |---|---|---|---|
-| `POST /applications/:id/hod-decision` | `hod:approve` | `approve`, `query` | `query` |
+| `POST /applications/:id/hod-decision` | `hod:approve` | `approve`, `query`, `reject` | `query`, `reject` |
 | `POST /applications/:id/credit-decision` | `credit:review` | `approve`, `query`, `decline` | `query`, `decline` |
 | `POST /applications/:id/internal-control-decision` | `control:verify` | `approve`, `query`, `reject` | `query`, `reject` |
 | `POST /applications/:id/md-decision` | `approval:md` | `approve`, `reject` | `reject` |

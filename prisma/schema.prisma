@@ -85,6 +85,17 @@ model Application {
   kycConfirmedById String?
   kycConfirmedAt   DateTime?
 
+  // Disbursement (Finance, finance_disburse: PENDING_DISBURSEMENT -> DISBURSED).
+  // Same pattern as kycConfirmed* above — set as a side effect of the one
+  // disbursement decision call, not a separate table. One disbursement per
+  // application; there's no partial/tranche disbursement in scope.
+  disbursedAmount       Decimal?  @db.Decimal(14, 2)
+  disbursementDate      DateTime?
+  disbursementMethod    String?
+  disbursementReference String?
+  disbursedById         String?
+  disbursedAt           DateTime?
+
   createdById      String
   createdBy        User              @relation("ApplicationCreatedBy", fields: [createdById], references: [id])
 
@@ -141,6 +152,7 @@ enum ApprovalStage {
   CREDIT_REVIEW
   INTERNAL_CONTROL
   MD
+  FINANCE
   WITHDRAWAL
 }
 
@@ -151,6 +163,7 @@ enum ApprovalDecision {
   REJECT
   RESOLVE
   WITHDRAW
+  DISBURSE
 }
 
 // One row per decision event — the structured, queryable record behind

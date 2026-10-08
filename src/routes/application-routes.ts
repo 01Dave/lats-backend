@@ -11,6 +11,7 @@ import {
   internalControlDecisionSchema,
   mdDecisionSchema,
   resolveQuerySchema,
+  disburseSchema,
 } from "../validators/approval-validator";
 import { addCommentSchema } from "../validators/comment-validator";
 import {
@@ -34,6 +35,7 @@ import {
   mdDecisionController,
   resolveQueryController,
   listApprovalsController,
+  disburseController,
 } from "../api/approval-controller";
 import { addCommentController, listCommentsController } from "../api/comment-controller";
 
@@ -117,6 +119,12 @@ router.post(
 // CREDIT_QUERY, Credit Review for IC_QUERY). The state machine's own
 // actor check is the real gate here.
 router.post("/:id/resolve-query", validateBody(resolveQuerySchema), resolveQueryController);
+router.post(
+  "/:id/disburse",
+  requirePermission("disbursement:record"),
+  validateBody(disburseSchema),
+  disburseController,
+);
 router.get("/:id/approvals", listApprovalsController);
 
 // ---------- Comments ----------

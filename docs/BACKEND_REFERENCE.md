@@ -4,11 +4,11 @@ Base URL: `http://localhost:4000/api/v1` (local dev). `/health` is the one
 exception, mounted at the server root.
 
 **Implemented:** auth, application create/edit(draft-only)/list/get/submit/withdraw, the four
-approval-decision endpoints (including HOD reject), query resolution, approval history, comments,
-document upload/verify/download.
+approval-decision endpoints (including HOD reject), disbursement, query resolution, approval
+history, comments, document upload/verify/download.
 
 **Not implemented:** editing an application once it's past DRAFT (including
-after a query response), disbursement, a dedicated audit-log endpoint,
+after a query response), a dedicated audit-log endpoint,
 reports, admin/user management, filtering or pagination on the list
 endpoint.
 
@@ -95,6 +95,11 @@ confirmed by HOD as a single flag on their approval, not a checklist.
 | `tenorMonths` | integer | |
 | `kycConfirmed` | boolean | set by HOD's approval, see §5 |
 | `kycConfirmedById`, `kycConfirmedAt` | uuid / datetime, nullable | |
+| `disbursedAmount` | string, nullable | decimal serialised as a string, same as `requestedAmount` — set by disbursement, see §5a |
+| `disbursementDate` | ISO 8601, nullable | supplied by Finance, not necessarily "now" |
+| `disbursementMethod` | string, nullable | free text, e.g. `"Bank Transfer"` |
+| `disbursementReference` | string, nullable | optional manual core-banking reference |
+| `disbursedById`, `disbursedAt` | uuid / datetime, nullable | from the authenticated actor and server clock |
 | `createdById` | uuid | |
 | `createdAt`, `updatedAt` | ISO 8601 | |
 
@@ -115,6 +120,7 @@ Closed (no further action): `HOD_REJECTED, CREDIT_DECLINED, IC_REJECTED, MD_REJE
 | Credit Review approve | `IC_IN_REVIEW` |
 | Internal Control approve | `PENDING_MD` |
 | MD approve | `PENDING_DISBURSEMENT` |
+| Finance disburse | `DISBURSED` |
 
 Build status tracking around "whatever comes back is where it is now," not around every enum value appearing as a visible step.
 
@@ -156,6 +162,31 @@ Returns every decision (including resolutions and withdrawal) in order:
 
 ---
 
+## 5a. Disbursement
+
+```
+POST /applications/:id/disburse
+```
+Permission: `disbursement:record` (Finance only). Only valid from `PENDING_DISBURSEMENT`; moves straight to `DISBURSED`, which is a real resting/closed status — it is **not** auto-chained anywhere further, unlike the statuses in §4's table.
+
+Request:
+```json
+{
+  "disbursedAmount": 50000,
+  "disbursementDate": "2026-10-08",
+  "disbursementMethod": "Bank Transfer",
+  "disbursementReference": "TXN-00123456",
+  "comment": "Disbursed to customer's account on file"
+}
+```
+`disbursedAmount` (positive number), `disbursementDate` (ISO date), `disbursementMethod` (free text, no fixed list) are required. `disbursementReference` and `comment` are optional — not every disbursement channel produces a reference number, and a comment is never required for this action (same `commentRequired: false` rule as every other transition, enforced by the workflow engine, not request validation). `disbursedById`/`disbursedAt` are **not** sent by the client — set server-side from the authenticated user and the server clock.
+
+Response `200`: the full application object with the `disbursed*` fields (see §2) now populated and `status: "DISBURSED"`.
+
+Shows up in `GET /applications/:id/approvals` like every other decision: `{ "stage": "FINANCE", "decision": "DISBURSE", ... }`.
+
+---
+
 ## 6. Comments and documents
 
 **Comments** — separate from the decision history above; free-standing notes.
@@ -191,7 +222,7 @@ One role per user. Gate UI on **permissions**, not role names.
 | `finance` | `application:view:all`, `disbursement:record`, `document:view` |
 | `admin` | `admin:users`, `admin:config`, `application:view:all`, `application:withdraw`, `document:verify` |
 
-`disbursement:record` exists on `finance` already, ahead of the disbursement endpoint being built.
+`disbursement:record` gates `POST /applications/:id/disburse` (§5a).
 
 ---
 
@@ -217,6 +248,7 @@ One role per user. Gate UI on **permissions**, not role names.
 Verified by actually running one application through the entire workflow against a real database: create → submit → HOD query → resolve → HOD approve with the KYC gate (both the rejection and the success case) → Credit Review approve → Internal Control approve → MD approve → `PENDING_DISBURSEMENT`, plus the approval-history dump, a free-standing comment, and a withdrawal with its comment persisted.
 
 **Not yet run, only reasoned from the code:**
+- Disbursement (§5a) — same `executeDecision()` shape as every tested decision endpoint, but the endpoint itself hasn't been exercised against a real database yet.
 - Credit Review's `query`/`decline`, Internal Control's `query`/`reject` — the *shape* is identical to HOD's and MD's, which were tested, but these specific paths haven't been called.
 - `resolve-query` being rejected for the wrong role (only the correct-role path was tested).
 - Document upload's file-type check trusts the declared content type, not the actual file bytes — a text file renamed to end in `.pdf` will be accepted.

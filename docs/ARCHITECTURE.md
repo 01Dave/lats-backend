@@ -57,11 +57,23 @@ call, because those intermediate statuses have no independent action attached
 to them — nobody "owns" a case sitting at `HOD_APPROVED`, so there's no reason
 to stop there.
 
-**A transition already defined but not reachable via any endpoint:**
-`finance_disburse: { from: "PENDING_DISBURSEMENT", to: "DISBURSED", actor: "finance" }`.
-The rule exists; there's no route, controller, or service calling it yet.
-Building disbursement is mostly wiring an endpoint to an action that's
-already correctly defined, not designing new logic.
+**Disbursement** (`finance_disburse: { from: "PENDING_DISBURSEMENT", to:
+"DISBURSED", actor: "finance", commentRequired: false }`) is now wired up:
+`POST /applications/:id/disburse`, gated on `disbursement:record`
+(already assigned to `finance`, unused until now). It follows the exact
+same `executeDecision()` pattern as the other four decision endpoints —
+one `Approval` row (`stage: "FINANCE"`, `decision: "DISBURSE"`) in the
+same transaction as the status update. `DISBURSED` is not in
+`SYSTEM_CHAIN`, so it's a real resting/terminal status, not auto-chained
+anywhere further.
+
+The data Finance records rides along on `Application` itself, same
+pattern as `kycConfirmed*`: `disbursedAmount`, `disbursementDate`,
+`disbursementMethod` (free text), `disbursementReference` (optional —
+not every channel produces one), `disbursedById`/`disbursedAt` (from the
+authenticated actor and server clock, not the request body). One
+disbursement per application — there's no partial/tranche disbursement
+in scope, so this didn't need its own table.
 
 **Withdraw** is handled separately from the table above because it's valid
 from almost any open status, not from one specific one.
@@ -136,6 +148,6 @@ deliberately rather than discovering in production:
 
 ## What's not built at all
 
-Disbursement, a dedicated audit-log endpoint (though `Approval` already
-covers workflow decisions — whether that's sufficient or something broader
-was intended is worth clarifying), PDF export, reports, admin endpoints.
+A dedicated audit-log endpoint (though `Approval` already covers workflow
+decisions — whether that's sufficient or something broader was intended is
+worth clarifying), PDF export, reports, admin endpoints, user management.

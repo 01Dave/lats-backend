@@ -3,7 +3,7 @@ info:
   title: LATS API — Loan Application Tracking System
   version: "0.4.0"
   description: >
-    Contract for the endpoints that are implemented today (Phase 1, Steps 1–4).
+    Contract for the endpoints that are implemented today (Phase 1, Steps 1–5).
     Six-stage workflow: Sales → HOD → Credit Review → Internal Control → MD →
     Finance. Every status transition is enforced server-side by the workflow
     state machine; the frontend should treat `status` and the user's
@@ -25,7 +25,7 @@ info:
 
 
     **Not implemented yet:** editing an application once it's past DRAFT
-    (including after a query response), disbursement, audit-log endpoint,
+    (including after a query response), audit-log endpoint,
     PDF export, reports, admin/user management.
 servers:
   - url: /api/v1
@@ -397,6 +397,39 @@ paths:
         "409": { $ref: "#/components/responses/InvalidTransition" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
+  /applications/{id}/disburse:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      tags: [Approvals]
+      summary: Record disbursement (from PENDING_DISBURSEMENT)
+      description: >
+        Requires `disbursement:record` (Finance). Valid only from
+        `PENDING_DISBURSEMENT`; returns `DISBURSED`, a real resting/closed
+        status — not auto-chained anywhere further. No comment is required.
+        `disbursedById`/`disbursedAt` are set server-side from the
+        authenticated actor and the server clock, not from the request body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [disbursedAmount, disbursementDate, disbursementMethod]
+              properties:
+                disbursedAmount: { type: number, minimum: 0, exclusiveMinimum: true }
+                disbursementDate: { type: string, format: date }
+                disbursementMethod: { type: string, minLength: 1, example: "Bank Transfer" }
+                disbursementReference: { type: string, minLength: 1 }
+                comment: { type: string, minLength: 1 }
+      responses:
+        "200": { $ref: "#/components/responses/ApplicationUpdated" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidTransition" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
   /applications/{id}/approvals:
     parameters:
       - $ref: "#/components/parameters/AppId"
@@ -689,6 +722,15 @@ components:
         kycConfirmed: { type: boolean }
         kycConfirmedById: { type: string, format: uuid, nullable: true }
         kycConfirmedAt: { type: string, format: date-time, nullable: true }
+        disbursedAmount:
+          type: string
+          nullable: true
+          description: Decimal serialised as a string, same convention as requestedAmount.
+        disbursementDate: { type: string, format: date-time, nullable: true }
+        disbursementMethod: { type: string, nullable: true }
+        disbursementReference: { type: string, nullable: true }
+        disbursedById: { type: string, format: uuid, nullable: true }
+        disbursedAt: { type: string, format: date-time, nullable: true }
         createdById: { type: string, format: uuid }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
@@ -701,11 +743,11 @@ components:
         stage:
           type: string
           nullable: true
-          enum: [HOD, CREDIT_REVIEW, INTERNAL_CONTROL, MD, WITHDRAWAL]
+          enum: [HOD, CREDIT_REVIEW, INTERNAL_CONTROL, MD, FINANCE, WITHDRAWAL]
           description: Null for query resolutions (they belong to no single stage).
         decision:
           type: string
-          enum: [APPROVE, QUERY, DECLINE, REJECT, RESOLVE, WITHDRAW]
+          enum: [APPROVE, QUERY, DECLINE, REJECT, RESOLVE, WITHDRAW, DISBURSE]
         actorId: { type: string, format: uuid }
         comment: { type: string, nullable: true }
         resultingStatus: { $ref: "#/components/schemas/ApplicationStatus" }

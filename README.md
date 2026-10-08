@@ -6,12 +6,13 @@ Workflow: Sales -> HOD -> Credit Review -> Internal Control -> MD -> Finance.
 ## Stack
 Node.js, Express, TypeScript, PostgreSQL via Prisma, JWT auth, Joi validation.
 
-## Status: Phase 1, Steps 1-4
+## Status: Phase 1, Steps 1-5
 Auth + RBAC, Application CRUD + workflow state machine, independent
-Document upload/verify/download, comments, and all four approval-decision
-endpoints (HOD/Credit Review/Internal Control/MD) are implemented.
-Disbursement and audit log are not yet implemented — see
-`LATS_Architecture_Brief.md` for the full build order.
+Document upload/verify/download, comments, all four approval-decision
+endpoints (HOD/Credit Review/Internal Control/MD), and disbursement
+(Finance) are implemented. Audit log (beyond the `Approval` trail) is
+not yet implemented — see `LATS_Architecture_Brief.md` for the full
+build order.
 
 **KYC confirmation**: no digital checklist — physical KYC verification
 is confirmed by HOD as a single `kycConfirmed: true` flag folded into
@@ -96,6 +97,7 @@ a Bearer token unless noted.
 - `POST /api/v1/applications/:id/internal-control-decision` — approve / query / reject
 - `POST /api/v1/applications/:id/md-decision` — approve / reject
 - `POST /api/v1/applications/:id/resolve-query` — resolves any of the three query states
+- `POST /api/v1/applications/:id/disburse` — Finance only (`disbursement:record`); `PENDING_DISBURSEMENT` -> `DISBURSED`
 - `GET /api/v1/applications/:id/approvals` — full decision history
 
 **Comments**
@@ -108,7 +110,7 @@ a Bearer token unless noted.
 - `GET /api/v1/applications/:id/documents/:documentId` — download
 - `PATCH /api/v1/applications/:id/documents/:documentId` — set status (`document:verify` permission)
 
-**Not yet implemented**: disbursement, reports, admin endpoints.
+**Not yet implemented**: reports, admin endpoints, user management.
 
 Full contract: `docs/lats-openapi.yaml`. Note that file predates several
 implementation changes (e.g. `phone` vs. `customerPhone`, `tenor` vs.

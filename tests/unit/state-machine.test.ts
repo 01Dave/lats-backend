@@ -88,4 +88,31 @@ describe("applyAction", () => {
       InvalidTransitionError,
     );
   });
+
+  it("finance_disburse moves PENDING_DISBURSEMENT -> DISBURSED and does not chain further (terminal)", () => {
+    const result = applyAction({ currentStatus: "PENDING_DISBURSEMENT", action: "finance_disburse", actorRole: "finance" });
+    expect(result.status).toBe("DISBURSED");
+
+    // DISBURSED is closed — nothing more can happen to it.
+    expect(() =>
+      applyAction({ currentStatus: "DISBURSED", action: "finance_disburse", actorRole: "finance" }),
+    ).toThrow(InvalidTransitionError);
+  });
+
+  it("finance_disburse does not require a comment", () => {
+    const result = applyAction({ currentStatus: "PENDING_DISBURSEMENT", action: "finance_disburse", actorRole: "finance" });
+    expect(result.commentRequired).toBe(false);
+  });
+
+  it("rejects finance_disburse from the wrong actor role", () => {
+    expect(() =>
+      applyAction({ currentStatus: "PENDING_DISBURSEMENT", action: "finance_disburse", actorRole: "md" }),
+    ).toThrow(InvalidTransitionError);
+  });
+
+  it("rejects finance_disburse from a status other than PENDING_DISBURSEMENT", () => {
+    expect(() =>
+      applyAction({ currentStatus: "MD_APPROVED", action: "finance_disburse", actorRole: "finance" }),
+    ).toThrow(InvalidTransitionError);
+  });
 });

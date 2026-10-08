@@ -22,6 +22,11 @@ export const mdDecisionController = catchAsync(async (req: Request, res: Respons
   res.status(200).json(application);
 });
 
+export const disburseController = catchAsync(async (req: Request, res: Response) => {
+  const application = await approvalService.disburseApplication(req.user!, req.params.id, req.body);
+  res.status(200).json(application);
+});
+
 export const resolveQueryController = catchAsync(async (req: Request, res: Response) => {
   const application = await approvalService.resolveQuery(req.user!, req.params.id, req.body.comment);
   res.status(200).json(application);

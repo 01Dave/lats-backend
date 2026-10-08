@@ -5,8 +5,8 @@ import { ValidationError, NotFoundError } from "../utils/errors";
 import { AuthenticatedUser } from "../middleware/auth-middleware";
 import { getApplicationById } from "./application-service";
 
-type ApprovalStage = "HOD" | "CREDIT_REVIEW" | "INTERNAL_CONTROL" | "MD" | "WITHDRAWAL";
-type ApprovalDecision = "APPROVE" | "QUERY" | "DECLINE" | "REJECT" | "RESOLVE" | "WITHDRAW";
+type ApprovalStage = "HOD" | "CREDIT_REVIEW" | "INTERNAL_CONTROL" | "MD" | "FINANCE" | "WITHDRAWAL";
+type ApprovalDecision = "APPROVE" | "QUERY" | "DECLINE" | "REJECT" | "RESOLVE" | "WITHDRAW" | "DISBURSE";
 
 /**
  * Runs a workflow action end to end: validates via applyAction (state
@@ -241,6 +241,43 @@ export async function resolveQuery(actor: AuthenticatedUser, applicationId: stri
     comment,
     stage: null,
     decision: "RESOLVE",
+  });
+}
+
+export interface DisburseInput {
+  disbursedAmount: number;
+  disbursementDate: string;
+  disbursementMethod: string;
+  disbursementReference?: string;
+  comment?: string;
+}
+
+/**
+ * Finance's one-time disbursement record (PENDING_DISBURSEMENT -> DISBURSED,
+ * a terminal status — not system-chained any further). Same pattern as
+ * HOD's kycConfirmed fields: the data rides along on the Application row
+ * via extraApplicationData rather than a separate table, since there's
+ * only ever one disbursement per application in this version of the
+ * system. disbursedById/disbursedAt are taken from the authenticated
+ * actor and the server clock, not from the request body.
+ */
+export async function disburseApplication(actor: AuthenticatedUser, applicationId: string, input: DisburseInput) {
+  return executeDecision({
+    applicationId,
+    action: "finance_disburse",
+    actorId: actor.id,
+    actorRole: actor.role,
+    comment: input.comment,
+    stage: "FINANCE",
+    decision: "DISBURSE",
+    extraApplicationData: {
+      disbursedAmount: input.disbursedAmount,
+      disbursementDate: new Date(input.disbursementDate),
+      disbursementMethod: input.disbursementMethod,
+      disbursementReference: input.disbursementReference ?? null,
+      disbursedById: actor.id,
+      disbursedAt: new Date(),
+    },
   });
 }
 

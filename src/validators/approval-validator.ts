@@ -32,3 +32,15 @@ export const mdDecisionSchema = Joi.object({
 export const resolveQuerySchema = Joi.object({
   comment: Joi.string().min(1).required(),
 });
+
+// Comment is optional (finance_disburse has commentRequired: false in the
+// state machine — same single-source-of-truth rule as every other
+// decision endpoint). disbursementReference is optional because not every
+// disbursement channel produces one at the moment of recording.
+export const disburseSchema = Joi.object({
+  disbursedAmount: Joi.number().positive().required(),
+  disbursementDate: Joi.date().iso().required(),
+  disbursementMethod: Joi.string().min(1).required(),
+  disbursementReference: Joi.string().min(1),
+  comment: Joi.string().min(1),
+});

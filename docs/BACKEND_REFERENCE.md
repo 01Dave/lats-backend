@@ -310,10 +310,9 @@ accounts. No restriction on resetting your own password this way.
 
 Verified by actually running one application through the entire workflow against a real database: create → submit → HOD query → resolve → HOD approve with the KYC gate (both the rejection and the success case) → Credit Review approve → Internal Control approve → MD approve → `PENDING_DISBURSEMENT` → Finance disburse → `DISBURSED`, plus the approval-history dump (including the `FINANCE`/`DISBURSE` entry), a free-standing comment, a withdrawal with its comment persisted, and disbursement's role gate (`403` for the wrong role) and closed-status guard (`409` on a second attempt).
 
+User management (§7a) was also verified end-to-end against a real database: create rejected without a branch for a branch-scoped role (`422`), create succeeded with one (`201`), the new user logged in with the password the admin set, admin blocked from deactivating their own account (`403`) and from demoting themselves away from `admin` (`403`), list returned every user with no `passwordHash` anywhere, and reset-password invalidated the old password and the new one worked immediately.
+
 **Not yet run, only reasoned from the code:**
-- User management (§7a) — create/list/update/reset-password and the
-  self-deactivation/self-demotion guard haven't been exercised against a
-  real database yet.
 - Credit Review's `query`/`decline`, Internal Control's `query`/`reject` — the *shape* is identical to HOD's and MD's, which were tested, but these specific paths haven't been called.
 - `resolve-query` being rejected for the wrong role (only the correct-role path was tested).
 - Document upload's file-type check trusts the declared content type, not the actual file bytes — a text file renamed to end in `.pdf` will be accepted.

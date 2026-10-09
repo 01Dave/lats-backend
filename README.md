@@ -6,13 +6,13 @@ Workflow: Sales -> HOD -> Credit Review -> Internal Control -> MD -> Finance.
 ## Stack
 Node.js, Express, TypeScript, PostgreSQL via Prisma, JWT auth, Joi validation.
 
-## Status: Phase 1, Steps 1-5
+## Status: Phase 1, Steps 1-6
 Auth + RBAC, Application CRUD + workflow state machine, independent
 Document upload/verify/download, comments, all four approval-decision
-endpoints (HOD/Credit Review/Internal Control/MD), and disbursement
-(Finance) are implemented. Audit log (beyond the `Approval` trail) is
-not yet implemented — see `LATS_Architecture_Brief.md` for the full
-build order.
+endpoints (HOD/Credit Review/Internal Control/MD), disbursement
+(Finance), and admin user management are implemented. Audit log (beyond
+the `Approval` trail) and reports are not yet implemented — see
+`LATS_Architecture_Brief.md` for the full build order.
 
 **KYC confirmation**: no digital checklist — physical KYC verification
 is confirmed by HOD as a single `kycConfirmed: true` flag folded into
@@ -110,7 +110,14 @@ a Bearer token unless noted.
 - `GET /api/v1/applications/:id/documents/:documentId` — download
 - `PATCH /api/v1/applications/:id/documents/:documentId` — set status (`document:verify` permission)
 
-**Not yet implemented**: reports, admin endpoints, user management.
+**User management** (all require `admin:users`)
+- `POST /api/v1/admin/users` — create (`email`, `name`, `password`, `role`, `branch` if role requires one)
+- `GET /api/v1/admin/users` — list
+- `GET /api/v1/admin/users/:id` — get one
+- `PATCH /api/v1/admin/users/:id` — update name/role/branch/active
+- `POST /api/v1/admin/users/:id/reset-password` — admin sets a new password directly
+
+**Not yet implemented**: reports, audit log beyond the `Approval` trail.
 
 Full contract: `docs/lats-openapi.yaml`. Note that file predates several
 implementation changes (e.g. `phone` vs. `customerPhone`, `tenor` vs.

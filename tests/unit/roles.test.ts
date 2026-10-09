@@ -1,4 +1,4 @@
-import { permissionsForRole } from "../../src/config/roles";
+import { permissionsForRole, roleRequiresBranch } from "../../src/config/roles";
 
 describe("permissionsForRole", () => {
   it("gives HOD the hod:approve permission", () => {
@@ -15,5 +15,20 @@ describe("permissionsForRole", () => {
     const perms = permissionsForRole("finance");
     expect(perms).toContain("disbursement:record");
     expect(perms).not.toContain("approval:md");
+  });
+});
+
+describe("roleRequiresBranch", () => {
+  it("requires a branch for the branch-scoped roles", () => {
+    expect(roleRequiresBranch("sales")).toBe(true);
+    expect(roleRequiresBranch("hod")).toBe(true);
+    expect(roleRequiresBranch("credit_review")).toBe(true);
+  });
+
+  it("does not require a branch for the view:all roles", () => {
+    expect(roleRequiresBranch("internal_control")).toBe(false);
+    expect(roleRequiresBranch("md")).toBe(false);
+    expect(roleRequiresBranch("finance")).toBe(false);
+    expect(roleRequiresBranch("admin")).toBe(false);
   });
 });

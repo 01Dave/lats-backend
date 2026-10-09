@@ -5,12 +5,12 @@ exception, mounted at the server root.
 
 **Implemented:** auth, application create/edit(draft-only)/list/get/submit/withdraw, the four
 approval-decision endpoints (including HOD reject), disbursement, query resolution, approval
-history, comments, document upload/verify/download.
+history, comments, document upload/verify/download, admin user management.
 
 **Not implemented:** editing an application once it's past DRAFT (including
 after a query response), a dedicated audit-log endpoint,
-reports, admin/user management, filtering or pagination on the list
-endpoint.
+reports, filtering or pagination on the list
+endpoint, self-service password change.
 
 Everything in this doc has been run against a real database with real HTTP
 calls, not just read from the code — see the numbered notes in §7 for the
@@ -223,6 +223,69 @@ One role per user. Gate UI on **permissions**, not role names.
 | `admin` | `admin:users`, `admin:config`, `application:view:all`, `application:withdraw`, `document:verify` |
 
 `disbursement:record` gates `POST /applications/:id/disburse` (§5a).
+`admin:users` gates everything under `/admin/users` (§7a) — there's no
+partial admin access; it's all-or-nothing in this version.
+
+---
+
+## 7a. User management
+
+All endpoints below require `admin:users` (held only by `admin`). None of
+them are reachable by any other role.
+
+```
+POST   /admin/users                        create
+GET    /admin/users                        list all users
+GET    /admin/users/:id                    get one
+PATCH  /admin/users/:id                    update
+POST   /admin/users/:id/reset-password     set a new password directly
+```
+
+**Create:**
+```json
+{
+  "email": "newuser@lats.test",
+  "name": "New User",
+  "password": "Password123!",
+  "role": "hod",
+  "branch": "Main"
+}
+```
+`branch` is **required** when `role` is `sales`, `hod`, or `credit_review`
+(these are the branch-scoped roles — `application:view:branch`), optional
+otherwise. Returns `422` if omitted for one of those roles. `email` must be
+unique — `409 CONFLICT` if it already exists. `password` minimum 8
+characters. Response is the created user, `201`, **never includes
+`passwordHash`** — no endpoint in this system ever returns it.
+
+**Update** (`PATCH /admin/users/:id`), any subset of:
+```json
+{ "name": "...", "role": "credit_review", "branch": "North", "active": false }
+```
+At least one field required. Same branch-requirement rule as create applies
+if `role` is being changed (or already is) one of the branch-scoped roles.
+**An admin cannot deactivate their own account or change their own role
+away from `admin`** — `403`, even though they hold `admin:users` — this is
+a deliberate guard against a single admin locking themselves out. A second
+admin account isn't restricted from doing either to the first.
+
+**Reset password:**
+```json
+POST /admin/users/:id/reset-password
+{ "password": "NewPassword456!" }
+```
+Sets the password directly — there's no email/token flow, this is a bank-
+internal tool for an admin who already has the authority to touch user
+accounts. No restriction on resetting your own password this way.
+
+**User object shape** (same for all these endpoints):
+```json
+{
+  "id": "uuid", "email": "...", "name": "...", "role": "hod",
+  "branch": "Main", "active": true,
+  "createdAt": "...", "updatedAt": "..."
+}
+```
 
 ---
 
@@ -245,10 +308,12 @@ One role per user. Gate UI on **permissions**, not role names.
 
 ## 9. Things verified end-to-end vs. read from code
 
-Verified by actually running one application through the entire workflow against a real database: create → submit → HOD query → resolve → HOD approve with the KYC gate (both the rejection and the success case) → Credit Review approve → Internal Control approve → MD approve → `PENDING_DISBURSEMENT`, plus the approval-history dump, a free-standing comment, and a withdrawal with its comment persisted.
+Verified by actually running one application through the entire workflow against a real database: create → submit → HOD query → resolve → HOD approve with the KYC gate (both the rejection and the success case) → Credit Review approve → Internal Control approve → MD approve → `PENDING_DISBURSEMENT` → Finance disburse → `DISBURSED`, plus the approval-history dump (including the `FINANCE`/`DISBURSE` entry), a free-standing comment, a withdrawal with its comment persisted, and disbursement's role gate (`403` for the wrong role) and closed-status guard (`409` on a second attempt).
 
 **Not yet run, only reasoned from the code:**
-- Disbursement (§5a) — same `executeDecision()` shape as every tested decision endpoint, but the endpoint itself hasn't been exercised against a real database yet.
+- User management (§7a) — create/list/update/reset-password and the
+  self-deactivation/self-demotion guard haven't been exercised against a
+  real database yet.
 - Credit Review's `query`/`decline`, Internal Control's `query`/`reject` — the *shape* is identical to HOD's and MD's, which were tested, but these specific paths haven't been called.
 - `resolve-query` being rejected for the wrong role (only the correct-role path was tested).
 - Document upload's file-type check trusts the declared content type, not the actual file bytes — a text file renamed to end in `.pdf` will be accepted.

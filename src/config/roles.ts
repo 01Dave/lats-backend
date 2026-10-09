@@ -75,3 +75,14 @@ export const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
 export function permissionsForRole(role: RoleName): Permission[] {
   return ROLE_PERMISSIONS[role] ?? [];
 }
+
+// Roles whose visibility scoping is application:view:branch (see
+// visibilityWhere() in application-service.ts) — a user in one of these
+// roles with no branch set sees nothing, by design, which is exactly the
+// bug this guards against in admin-service.ts (it bit HOD's seed data
+// once already, see scripts/seed.ts).
+const BRANCH_SCOPED_ROLES: RoleName[] = ["sales", "hod", "credit_review"];
+
+export function roleRequiresBranch(role: RoleName): boolean {
+  return BRANCH_SCOPED_ROLES.includes(role);
+}

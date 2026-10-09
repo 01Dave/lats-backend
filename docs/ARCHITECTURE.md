@@ -99,6 +99,38 @@ An application outside the caller's scope returns `404`, not `403`, so a
 Sales user can't tell the difference between "doesn't exist" and "exists but
 isn't theirs."
 
+## User management
+
+`POST/GET /admin/users`, `GET/PATCH /admin/users/:id`, `POST
+/admin/users/:id/reset-password` — all gated on `admin:users` (already
+assigned to `admin`, unused until now, same situation disbursement's
+`disbursement:record` was in). Lives in `admin-service.ts`/
+`admin-controller.ts`/`admin-routes.ts`, following the same thin-controller
+pattern as everything else. No separate `admin` schema or table — it's
+plain CRUD over the existing `User` model.
+
+An admin sets a user's initial/new password directly in the request —
+there's no email/SMS delivery infrastructure in this system, so a
+system-generated password would still have to be relayed to the user
+out-of-band by the same admin anyway. `passwordHash` is never returned by
+any of these endpoints (`toSafeUser()` strips it before the response
+leaves the service layer, not at the controller).
+
+`roleRequiresBranch()` lives in `config/roles.ts`, next to
+`permissionsForRole()` — it's a role-config fact (which roles are scoped by
+`application:view:branch`), not service logic, so it stays free of any
+Prisma dependency and is independently unit-testable. Creating or
+reassigning a user into `sales`/`hod`/`credit_review` without a `branch` is
+rejected with `422` — this is the exact bug that bit HOD's seed data once
+before (see `scripts/seed.ts`'s comment), now enforced instead of just
+documented.
+
+An admin cannot deactivate their own account or change their own role away
+from `admin`, via either endpoint — `403`, not silently ignored — because
+a single-admin setup could otherwise lock itself out with no way back
+short of a direct database edit. A second admin account is unaffected by
+this restriction and can do either to the first.
+
 ## Documents
 
 Stored on local disk under `FILE_STORAGE_DIR` (default `./uploads`,
@@ -133,9 +165,10 @@ deliberately rather than discovering in production:
    content. A renamed text file with a `.pdf` extension is accepted.
 5. **CORS allows any origin.** Fine for local development; needs restricting
    before any real deployment.
-6. **No user-management endpoints.** Users only exist via the seed script;
-   there's no way to create, deactivate, or change a real user's role through
-   the API.
+6. **No self-service password change or login-attempt throttling.** Admin
+   can reset anyone's password via `/admin/users/:id/reset-password`, but a
+   user can't change their own password without going through an admin, and
+   there's no rate limiting on `/auth/login`.
 7. **Test coverage is auth-gating only for most new endpoints** (confirms a
    401 with no token) plus unit tests for the state machine, roles, and file
    storage. The full multi-stage workflow was verified by hand against a
@@ -150,4 +183,4 @@ deliberately rather than discovering in production:
 
 A dedicated audit-log endpoint (though `Approval` already covers workflow
 decisions — whether that's sufficient or something broader was intended is
-worth clarifying), PDF export, reports, admin endpoints, user management.
+worth clarifying), PDF export, reports.

@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
   title: LATS API — Loan Application Tracking System
-  version: "0.4.0"
+  version: "0.5.0"
   description: >
-    Contract for the endpoints that are implemented today (Phase 1, Steps 1–5).
+    Contract for the endpoints that are implemented today (Phase 1, Steps 1–6).
     Six-stage workflow: Sales → HOD → Credit Review → Internal Control → MD →
     Finance. Every status transition is enforced server-side by the workflow
     state machine; the frontend should treat `status` and the user's
@@ -26,7 +26,7 @@ info:
 
     **Not implemented yet:** editing an application once it's past DRAFT
     (including after a query response), audit-log endpoint,
-    PDF export, reports, admin/user management.
+    PDF export, reports, self-service password change.
 servers:
   - url: /api/v1
 
@@ -40,6 +40,7 @@ tags:
   - name: Approvals
   - name: Comments
   - name: Documents
+  - name: Admin
 
 paths:
   /health:
@@ -589,6 +590,136 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
+  # ---------- ADMIN ----------
+  /admin/users:
+    post:
+      tags: [Admin]
+      summary: Create a user
+      description: >
+        Requires `admin:users`. `branch` is required when `role` is
+        `sales`, `hod`, or `credit_review` (the branch-scoped roles) and
+        optional otherwise. `email` must be unique.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, name, password, role]
+              properties:
+                email: { type: string, format: email }
+                name: { type: string, minLength: 1 }
+                password: { type: string, minLength: 8, description: Set directly by the admin; no email/token flow. }
+                role: { $ref: "#/components/schemas/Role" }
+                branch: { type: string, minLength: 1 }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    get:
+      tags: [Admin]
+      summary: List all users
+      description: Requires `admin:users`. Bare array, no pagination.
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/users/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Admin]
+      summary: Get one user
+      description: Requires `admin:users`.
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Admin]
+      summary: Update a user
+      description: >
+        Requires `admin:users`. At least one field required. An admin
+        cannot deactivate their own account or change their own role away
+        from `admin` — `403`, even though they hold `admin:users`. Same
+        branch-requirement rule as create applies when `role` is changed
+        (or already is) one of the branch-scoped roles.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1 }
+                role: { $ref: "#/components/schemas/Role" }
+                branch: { type: string, minLength: 1, nullable: true }
+                active: { type: boolean }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /admin/users/{id}/reset-password:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Admin]
+      summary: Set a user's password directly
+      description: >
+        Requires `admin:users`. No email/token flow — a bank-internal tool
+        for an admin who already has account-management authority. No
+        restriction on resetting your own password this way.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, minLength: 8 }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -637,6 +768,11 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: Already exists, or otherwise conflicts with current state (`CONFLICT`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
     Error:
@@ -649,6 +785,21 @@ components:
     Role:
       type: string
       enum: [sales, hod, credit_review, internal_control, md, finance, admin]
+
+    User:
+      type: object
+      description: >
+        passwordHash is never included in any response, from this or any
+        other endpoint in the system.
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        branch: { type: string, nullable: true }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
 
     ApplicationStatus:
       type: string

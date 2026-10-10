@@ -169,10 +169,10 @@ deliberately rather than discovering in production:
    default, so local dev and the ngrok tunnel keep working unchanged —
    but it's now a one-line env change to lock down before any real
    deployment, not a code change.
-6. **No self-service password change or login-attempt throttling.** Admin
-   can reset anyone's password via `/admin/users/:id/reset-password`, but a
-   user can't change their own password without going through an admin, and
-   there's no rate limiting on `/auth/login`.
+6. **No login-attempt throttling** on `/auth/login` — there's no rate
+   limiting in front of it yet. (Password reset being admin-only, via
+   `/admin/users/:id/reset-password`, is deliberate — not a gap — there's
+   no self-service password change by design.)
 7. **Test coverage is auth-gating only for most new endpoints** (confirms a
    401 with no token) plus unit tests for the state machine, roles, and file
    storage. The full multi-stage workflow was verified by hand against a

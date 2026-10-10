@@ -26,7 +26,8 @@ info:
 
     **Not implemented yet:** editing an application once it's past DRAFT
     (including after a query response), audit-log endpoint,
-    PDF export, reports, self-service password change.
+    PDF export, reports. (Self-service password change is deliberately out
+    of scope — password reset is admin-only by design.)
 servers:
   - url: /api/v1
 

@@ -10,7 +10,9 @@ history, comments, document upload/verify/download, admin user management.
 **Not implemented:** editing an application once it's past DRAFT (including
 after a query response), a dedicated audit-log endpoint,
 reports, filtering or pagination on the list
-endpoint, self-service password change.
+endpoint. (Self-service password change is deliberately out of scope —
+password reset is admin-only by design, via
+`POST /admin/users/:id/reset-password`.)
 
 Everything in this doc has been run against a real database with real HTTP
 calls, not just read from the code — see the numbered notes in §9 for the

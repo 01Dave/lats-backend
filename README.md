@@ -124,7 +124,10 @@ working unchanged, set it to a real list before any deployment. `bcrypt`
 is on v6, which removes the `node-pre-gyp`/`tar` vulnerability chain that
 affected v5.
 
-**Not yet implemented**: reports, audit log beyond the `Approval` trail.
+**Not yet implemented**: reports, PDF export. (A separate audit log
+beyond the `Approval` trail was deliberately not built — `Approval`
+already covers who approved/rejected/queried what, and when, which was
+confirmed sufficient.)
 
 Full contract: `docs/lats-openapi.yaml`. Note that file predates several
 implementation changes (e.g. `phone` vs. `customerPhone`, `tenor` vs.

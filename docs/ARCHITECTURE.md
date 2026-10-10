@@ -192,6 +192,7 @@ deliberately rather than discovering in production:
 
 ## What's not built at all
 
-A dedicated audit-log endpoint (though `Approval` already covers workflow
-decisions — whether that's sufficient or something broader was intended is
-worth clarifying), PDF export, reports.
+PDF export, reports. (A separate, dedicated audit-log endpoint is
+deliberately not built — the `Approval` table already is the audit
+trail for who approved/rejected/queried what, and when; that was
+confirmed sufficient rather than left open.)

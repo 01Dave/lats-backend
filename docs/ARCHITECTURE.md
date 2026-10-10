@@ -163,8 +163,12 @@ deliberately rather than discovering in production:
    caller's permission scope allows, always, unfiltered.
 4. **Document upload trusts the declared MIME type**, not the actual file
    content. A renamed text file with a `.pdf` extension is accepted.
-5. **CORS allows any origin.** Fine for local development; needs restricting
-   before any real deployment.
+5. ~~CORS allows any origin.~~ **Fixed.** `CORS_ALLOWED_ORIGINS` (env var,
+   `config/cors.ts` + `app.ts`) restricts it to a specific comma-separated
+   list of origins. Unset, or set to `*`, still allows any origin — the
+   default, so local dev and the ngrok tunnel keep working unchanged —
+   but it's now a one-line env change to lock down before any real
+   deployment, not a code change.
 6. **No self-service password change or login-attempt throttling.** Admin
    can reset anyone's password via `/admin/users/:id/reset-password`, but a
    user can't change their own password without going through an admin, and
@@ -174,10 +178,17 @@ deliberately rather than discovering in production:
    storage. The full multi-stage workflow was verified by hand against a
    real database, not by an automated end-to-end test — there's a real gap
    between "the code was exercised" and "there's a regression test."
-8. **`bcrypt`'s dependency chain currently has known vulnerabilities**
-   (`npm audit`: 2 high, 1 critical, all through `node-pre-gyp`/`tar` at
-   install time, not through request handling). Fixing it means a major
-   version bump of `bcrypt`, untested against this codebase.
+8. ~~`bcrypt`'s dependency chain has known vulnerabilities.~~ **Fixed.**
+   Bumped to `bcrypt@6`, which drops `node-pre-gyp` (the source of the
+   `tar` vulnerabilities) entirely in favor of prebuilt binaries via
+   `node-gyp-build`. `hash`/`compare` — the only two functions this
+   codebase calls — are unchanged across the major version; verified with
+   the full build + test suite. `npm audit` still reports vulnerabilities,
+   but every one left traces through `jest`/`ts-node-dev` — devDependencies
+   only, never part of `npm start`/`dist/server.js`, not reachable from
+   request handling. Fixing those means a `jest@30` major bump, which risks
+   breaking `ts-jest`/the test config for zero actual production exposure
+   — not worth it right now.
 
 ## What's not built at all
 

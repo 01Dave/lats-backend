@@ -12,7 +12,8 @@ Document upload/verify/download, comments, all four approval-decision
 endpoints (HOD/Credit Review/Internal Control/MD), disbursement
 (Finance), and admin user management are implemented. Audit log (beyond
 the `Approval` trail) and reports are not yet implemented — see
-`LATS_Architecture_Brief.md` for the full build order.
+`docs/ARCHITECTURE.md` for the module structure and `docs/BACKEND_REFERENCE.md`
+for the full endpoint reference.
 
 **KYC confirmation**: no digital checklist — physical KYC verification
 is confirmed by HOD as a single `kycConfirmed: true` flag folded into
@@ -116,6 +117,12 @@ a Bearer token unless noted.
 - `GET /api/v1/admin/users/:id` — get one
 - `PATCH /api/v1/admin/users/:id` — update name/role/branch/active
 - `POST /api/v1/admin/users/:id/reset-password` — admin sets a new password directly
+
+**Security**: CORS is restricted via `CORS_ALLOWED_ORIGINS` (env var, see
+`.env.example`) — defaults to allowing any origin so local dev keeps
+working unchanged, set it to a real list before any deployment. `bcrypt`
+is on v6, which removes the `node-pre-gyp`/`tar` vulnerability chain that
+affected v5.
 
 **Not yet implemented**: reports, audit log beyond the `Approval` trail.
 

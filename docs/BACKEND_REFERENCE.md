@@ -13,7 +13,7 @@ reports, filtering or pagination on the list
 endpoint, self-service password change.
 
 Everything in this doc has been run against a real database with real HTTP
-calls, not just read from the code — see the numbered notes in §7 for the
+calls, not just read from the code — see the numbered notes in §9 for the
 handful of things that haven't been exercised that way yet.
 
 ---
@@ -316,4 +316,18 @@ User management (§7a) was also verified end-to-end against a real database: cre
 - Credit Review's `query`/`decline`, Internal Control's `query`/`reject` — the *shape* is identical to HOD's and MD's, which were tested, but these specific paths haven't been called.
 - `resolve-query` being rejected for the wrong role (only the correct-role path was tested).
 - Document upload's file-type check trusts the declared content type, not the actual file bytes — a text file renamed to end in `.pdf` will be accepted.
-- CORS is currently open to any origin (fine for local dev, not for a deployed environment).
+- CORS restriction (`CORS_ALLOWED_ORIGINS`, see §10) — rejecting a disallowed origin with `403` hasn't been exercised against a running server, only unit-tested at the `isOriginAllowed()` function level.
+
+---
+
+## 10. Deployment config
+
+**`CORS_ALLOWED_ORIGINS`** (env var) — comma-separated list of origins
+allowed to call this API from a browser, e.g.
+`"https://lats.example.com,https://lats-staging.example.com"`. Unset, or
+set to `"*"`, allows any origin — the default, so local dev and the ngrok
+tunnel keep working unchanged. A disallowed origin gets `403 FORBIDDEN`
+(`{"code":"FORBIDDEN","message":"Origin '...' is not allowed"}`), same
+error shape as everything else in §8. Set this to a real, specific list
+before deploying anywhere reachable outside your own machine — it's an
+env change, not a code change.

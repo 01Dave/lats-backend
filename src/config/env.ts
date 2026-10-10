@@ -9,6 +9,7 @@ interface EnvConfig {
   jwtSecret: string;
   jwtExpiresIn: string;
   fileStorageDir: string;
+  corsAllowedOrigins: string[];
 }
 
 /**
@@ -32,4 +33,14 @@ export const env: EnvConfig = {
   // Local-disk document storage (Step 3 decision — see file-storage.ts for
   // why this sits behind an interface rather than being used directly).
   fileStorageDir: process.env.FILE_STORAGE_DIR ?? "./uploads",
+  // Comma-separated list of origins allowed to call this API from a
+  // browser, e.g. "https://lats.example.com,https://lats-staging.example.com".
+  // Unset (or "*") means "allow any origin" — the original behavior, kept
+  // as the default so this doesn't break local dev or the ngrok tunnel
+  // mid-project. Set this to a real, specific list before any deployment
+  // reachable outside your own machine (see cors.ts).
+  corsAllowedOrigins: (process.env.CORS_ALLOWED_ORIGINS ?? "*")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0),
 };

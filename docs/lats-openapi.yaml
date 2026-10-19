@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: LATS API — Loan Application Tracking System
-  version: "0.5.0"
+  version: "0.6.0"
   description: >
     Contract for the endpoints that are implemented today (Phase 1, Steps 1–6).
     Six-stage workflow: Sales → HOD → Credit Review → Internal Control → MD →
@@ -24,12 +24,18 @@ info:
     `PENDING_MD`; an MD approval returns `PENDING_DISBURSEMENT`.
 
 
+    **`GET /applications` response shape changed** (breaking): it now
+    returns `{ data, pagination }` instead of a bare array, and accepts
+    `status`/`branch`/`page`/`limit` query params. `status`/`branch` only
+    narrow a caller's own visibility scope, never widen it.
+
+
     **Not implemented yet:** editing an application once it's past DRAFT
-    (including after a query response), PDF export, reports. (Self-service
-    password change and a separate audit-log endpoint are both
-    deliberately out of scope — password reset is admin-only by design,
-    and the `Approval` table already is the audit trail for workflow
-    decisions.)
+    (including after a query response), PDF export, reports, case-owner
+    assignment/reassignment. (Self-service password change and a
+    separate audit-log endpoint are both deliberately out of scope —
+    password reset is admin-only by design, and the `Approval` table
+    already is the audit trail for workflow decisions.)
 servers:
   - url: /api/v1
 
@@ -137,17 +143,34 @@ paths:
         Scoped server-side by permission: `application:view:own` (Sales — only
         applications they created), `application:view:branch` (HOD, Credit
         Review — same branch), `application:view:all` (Internal Control, MD,
-        Finance, Admin). Returns a bare array — no pagination or filtering yet.
-        Newest first.
+        Finance, Admin). `status`/`branch` filter on top of that scope — they
+        can only narrow the result, never show something outside it. Newest
+        first within a page.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/ApplicationStatus" }
+        - name: branch
+          in: query
+          required: false
+          schema: { type: string, minLength: 1 }
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
       responses:
         "200":
-          description: Applications
+          description: Applications, paginated
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/Application" }
+              schema: { $ref: "#/components/schemas/ApplicationListResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
     post:
       tags: [Applications]
       summary: Create an application (status DRAFT)
@@ -888,6 +911,22 @@ components:
         createdById: { type: string, format: uuid }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+
+    PaginationMeta:
+      type: object
+      properties:
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 20 }
+        total: { type: integer, example: 47 }
+        totalPages: { type: integer, example: 3 }
+
+    ApplicationListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Application" }
+        pagination: { $ref: "#/components/schemas/PaginationMeta" }
 
     Approval:
       type: object

@@ -1,9 +1,14 @@
 import { Router } from "express";
 import { authMiddleware } from "../middleware/auth-middleware";
 import { requirePermission } from "../middleware/rbac-middleware";
-import { validateBody } from "../middleware/validate-middleware";
+import { validateBody, validateQuery } from "../middleware/validate-middleware";
 import { uploadSingleDocument } from "../middleware/upload-middleware";
-import { createApplicationSchema, withdrawSchema, updateApplicationSchema } from "../validators/application-validator";
+import {
+  createApplicationSchema,
+  withdrawSchema,
+  updateApplicationSchema,
+  listApplicationsQuerySchema,
+} from "../validators/application-validator";
 import { setDocumentStatusSchema } from "../validators/document-validator";
 import {
   hodDecisionSchema,
@@ -44,7 +49,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.post("/", requirePermission("application:create"), validateBody(createApplicationSchema), createApplicationController);
-router.get("/", listApplicationsController);
+router.get("/", validateQuery(listApplicationsQuerySchema), listApplicationsController);
 router.get("/:id", getApplicationController);
 // No requirePermission wrapper — same pattern as submit: creator-only and
 // DRAFT-only are enforced inside the service, not at the route layer.

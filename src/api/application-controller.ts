@@ -9,8 +9,23 @@ export const createApplicationController = catchAsync(async (req: Request, res: 
 });
 
 export const listApplicationsController = catchAsync(async (req: Request, res: Response) => {
-  const applications = await applicationService.listApplications(req.user!);
-  res.status(200).json(applications);
+  // req.query is already validated/defaulted by validateQuery(listApplicationsQuerySchema)
+  // before this runs — page/limit are always present, status/branch are
+  // optional. Cast needed because Express types req.query as
+  // ParsedQs (all-string) regardless of what validateQuery actually put there.
+  const query = req.query as unknown as {
+    status?: string;
+    branch?: string;
+    page: number;
+    limit: number;
+  };
+  const result = await applicationService.listApplications(req.user!, {
+    status: query.status as applicationService.ListApplicationsFilters["status"],
+    branch: query.branch,
+    page: query.page,
+    limit: query.limit,
+  });
+  res.status(200).json(result);
 });
 
 export const getApplicationController = catchAsync(async (req: Request, res: Response) => {

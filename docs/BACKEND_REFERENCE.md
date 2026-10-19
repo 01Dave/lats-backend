@@ -3,13 +3,14 @@
 Base URL: `http://localhost:4000/api/v1` (local dev). `/health` is the one
 exception, mounted at the server root.
 
-**Implemented:** auth, application create/edit(draft-only)/list/get/submit/withdraw, the four
-approval-decision endpoints (including HOD reject), disbursement, query resolution, approval
+**Implemented:** auth, application create/edit(draft-only)/list(filtered,
+paginated)/get/submit/withdraw, the four approval-decision endpoints
+(including HOD reject), disbursement, query resolution, approval
 history, comments, document upload/verify/download, admin user management.
 
 **Not implemented:** editing an application once it's past DRAFT (including
-after a query response), reports, filtering or pagination on the list
-endpoint. (Self-service password change is deliberately out of scope —
+after a query response), reports, case-owner assignment/reassignment.
+(Self-service password change is deliberately out of scope —
 password reset is admin-only by design, via
 `POST /admin/users/:id/reset-password`. A separate audit-log endpoint is
 likewise deliberately not built — the `Approval` table, queryable via
@@ -67,7 +68,25 @@ confirmed by HOD as a single flag on their approval, not a checklist.
 ```
 → `201`, full `Application` object, status `DRAFT`.
 
-**GET `/applications`** — bare array, no pagination, scoped by permission (see §5). Includes `kycConfirmed`/`kycConfirmedById`/`kycConfirmedAt` on every row.
+**GET `/applications`** — scoped by permission (see §5). Includes
+`kycConfirmed`/`kycConfirmedById`/`kycConfirmedAt` on every row.
+
+Optional query params, all combinable: `status` (exact match, any real
+`ApplicationStatus` value — invalid values get `422`), `branch` (exact
+match), `page` (default `1`), `limit` (default `20`, capped at `100`).
+`status`/`branch` narrow the result on top of your own visibility scope —
+they can only make the list smaller, never show you something outside
+`application:view:own`/`:branch`/`:all`.
+
+**Response shape changed** (breaking, from a previous version of this
+doc/endpoint that returned a bare array):
+
+```json
+{
+  "data": [ { "id": "...", "status": "HOD_IN_REVIEW", ... }, ... ],
+  "pagination": { "page": 1, "limit": 20, "total": 47, "totalPages": 3 }
+}
+```
 
 **GET `/applications/:id`** — same shape. Outside your visibility scope → `404`, not `403`.
 
@@ -321,6 +340,7 @@ User management (§7a) was also verified end-to-end against a real database: cre
 - `resolve-query` being rejected for the wrong role (only the correct-role path was tested).
 - Document upload's file-type check trusts the declared content type, not the actual file bytes — a text file renamed to end in `.pdf` will be accepted.
 - CORS restriction (`CORS_ALLOWED_ORIGINS`, see §10) — rejecting a disallowed origin with `403` hasn't been exercised against a running server, only unit-tested at the `isOriginAllowed()` function level.
+- `GET /applications` filtering/pagination (`status`, `branch`, `page`, `limit`) — the pagination math and query-schema validation/defaulting are unit-tested, but the endpoint itself hasn't been called against a real database with real data yet.
 
 ---
 

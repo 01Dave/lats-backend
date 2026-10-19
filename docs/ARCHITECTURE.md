@@ -99,6 +99,19 @@ An application outside the caller's scope returns `404`, not `403`, so a
 Sales user can't tell the difference between "doesn't exist" and "exists but
 isn't theirs."
 
+**Filtering and pagination** on `GET /applications` build on top of this,
+not instead of it: `listApplicationsQuerySchema`
+(`validators/application-validator.ts`) validates/defaults `status`,
+`branch`, `page`, `limit` from the query string, then
+`listApplications()` spreads `status`/`branch` into the same `where`
+clause *after* `visibilityWhere()` — so a filter can only narrow an
+already-scoped result, never escape it. Pagination math
+(`totalPages`, the zero-total edge case) lives in `utils/pagination.ts`,
+pure and independently unit-tested, same convention as `roles.ts`/
+`cors.ts`. The response is now an envelope (`{ data, pagination }`), a
+breaking change from the previous bare-array shape — flag this to
+whoever's consuming the endpoint on the frontend.
+
 ## User management
 
 `POST/GET /admin/users`, `GET/PATCH /admin/users/:id`, `POST
@@ -158,9 +171,13 @@ deliberately rather than discovering in production:
    comment via `resolve-query`, not an edit to the underlying data. Whether
    editing during a query should be allowed is a separate, deliberately
    undecided question (see project notes).
-3. **No case-owner assignment or reassignment**, and no status/branch
-   filtering or pagination on `GET /applications` — it returns everything the
-   caller's permission scope allows, always, unfiltered.
+3. ~~No status/branch filtering or pagination on `GET /applications`.~~
+   **Fixed.** `status`/`branch` query params narrow the result on top of
+   the caller's own visibility scope; `page`/`limit` paginate (default
+   `20`, capped `100`). Response shape changed from a bare array to
+   `{ data, pagination }` — see `docs/BACKEND_REFERENCE.md` §3. **No
+   case-owner assignment or reassignment yet** — that's still open,
+   deliberately scoped out of this round as a separate, bigger feature.
 4. **Document upload trusts the declared MIME type**, not the actual file
    content. A renamed text file with a `.pdf` extension is accepted.
 5. ~~CORS allows any origin.~~ **Fixed.** `CORS_ALLOWED_ORIGINS` (env var,

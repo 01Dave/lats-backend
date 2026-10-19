@@ -86,7 +86,7 @@ a Bearer token unless noted.
 
 **Applications**
 - `POST /api/v1/applications` — create (Sales)
-- `GET /api/v1/applications` — list, scoped by role (own / branch / all)
+- `GET /api/v1/applications` — list, scoped by role (own / branch / all); optional `status`/`branch`/`page`/`limit` query params; returns `{ data, pagination }`
 - `GET /api/v1/applications/:id`
 - `PATCH /api/v1/applications/:id` — edit, DRAFT-only, creator-only
 - `POST /api/v1/applications/:id/submit`

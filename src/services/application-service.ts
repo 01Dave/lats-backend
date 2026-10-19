@@ -3,6 +3,8 @@ import { generateAppNumber } from "../utils/app-number-generator";
 import { applyAction } from "../workflow/state-machine";
 import { NotFoundError, ConflictError } from "../utils/errors";
 import { AuthenticatedUser } from "../middleware/auth-middleware";
+import { ApplicationStatus } from "../workflow/statuses";
+import { buildPaginationMeta } from "../utils/pagination";
 
 export interface CreateApplicationInput {
   branch: string;
@@ -85,11 +87,48 @@ export async function getApplicationById(actor: AuthenticatedUser, id: string) {
   return application;
 }
 
-export async function listApplications(actor: AuthenticatedUser) {
-  return prisma.application.findMany({
-    where: visibilityWhere(actor),
-    orderBy: { createdAt: "desc" },
-  });
+export interface ListApplicationsFilters {
+  status?: ApplicationStatus;
+  branch?: string;
+  page: number;
+  limit: number;
+}
+
+/**
+ * status/branch narrow the result on top of visibilityWhere() — spread
+ * order matters here: filters come after the spread so they can only add
+ * constraints, never override/widen the actor's own scope (e.g. a
+ * branch-scoped HOD passing branch=SomeOtherBranch just gets zero rows,
+ * not a bypass of their own branch restriction).
+ *
+ * Returns an envelope ({ data, pagination }) rather than a bare array —
+ * this is a breaking response-shape change from the previous version of
+ * this endpoint (used to return the array directly). Worth flagging to
+ * whoever's consuming this on the frontend.
+ */
+export async function listApplications(actor: AuthenticatedUser, filters: ListApplicationsFilters) {
+  const where = {
+    ...visibilityWhere(actor),
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.branch ? { branch: filters.branch } : {}),
+  };
+
+  const skip = (filters.page - 1) * filters.limit;
+
+  const [data, total] = await Promise.all([
+    prisma.application.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: filters.limit,
+    }),
+    prisma.application.count({ where }),
+  ]);
+
+  return {
+    data,
+    pagination: buildPaginationMeta(filters.page, filters.limit, total),
+  };
 }
 
 /**

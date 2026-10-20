@@ -154,6 +154,15 @@ anything that calls them. Filenames on disk are random UUIDs, never the
 uploaded filename, so there's no path-traversal or collision risk; the
 original filename is kept separately in the database for display.
 
+Two layers check an upload's type: the multer `fileFilter` in
+`upload-middleware.ts` rejects anything whose *declared* `Content-Type`
+isn't PDF/JPEG/PNG (cheap, runs before the body is buffered), and
+`uploadDocument()` then confirms the file's *actual leading bytes* match
+that declared type via `detectFileType()`/`contentMatchesDeclaredType()`
+in `utils/file-signature.ts` — pure and unit-tested, same convention as
+`roles.ts`/`pagination.ts`. The first layer alone is spoofable by any
+client; the second is what stops a renamed text file.
+
 Documents are versioned: re-uploading the same `docType` marks the previous
 row `current: false` and creates a new one, rather than overwriting.
 
@@ -178,8 +187,12 @@ deliberately rather than discovering in production:
    `{ data, pagination }` — see `docs/BACKEND_REFERENCE.md` §3. **No
    case-owner assignment or reassignment yet** — that's still open,
    deliberately scoped out of this round as a separate, bigger feature.
-4. **Document upload trusts the declared MIME type**, not the actual file
-   content. A renamed text file with a `.pdf` extension is accepted.
+4. ~~Document upload trusts the declared MIME type.~~ **Fixed.**
+   `document-service.ts` now checks the file's leading bytes against the
+   declared type (`utils/file-signature.ts`) and rejects a mismatch with
+   `422` — a renamed text file no longer gets through. Remaining limit:
+   this proves the file *starts* like a PDF/JPG/PNG, not that the whole
+   file is valid or safe; it is not malware scanning.
 5. ~~CORS allows any origin.~~ **Fixed.** `CORS_ALLOWED_ORIGINS` (env var,
    `config/cors.ts` + `app.ts`) restricts it to a specific comma-separated
    list of origins. Unset, or set to `*`, still allows any origin — the

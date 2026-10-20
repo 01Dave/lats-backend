@@ -25,6 +25,7 @@ export const uploadDocumentController = catchAsync(async (req: Request, res: Res
     applicationId: req.params.id,
     docType: req.body.docType,
     originalFilename: req.file.originalname,
+    declaredMimeType: req.file.mimetype,
     buffer: req.file.buffer,
     uploadedById: req.user!.id,
   });

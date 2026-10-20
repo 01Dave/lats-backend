@@ -1,11 +1,13 @@
 import { prisma } from "../db/client";
 import { saveFile } from "../utils/file-storage";
-import { NotFoundError } from "../utils/errors";
+import { contentMatchesDeclaredType } from "../utils/file-signature";
+import { NotFoundError, ValidationError } from "../utils/errors";
 
 export interface UploadDocumentInput {
   applicationId: string;
   docType: string;
   originalFilename: string;
+  declaredMimeType: string;
   buffer: Buffer;
   uploadedById: string;
 }
@@ -16,8 +18,16 @@ export interface UploadDocumentInput {
  * trail. docType is a free descriptor (no checklist to match against in
  * this version of the system — verification happens physically; see
  * setDocumentStatus below for how a document gets vetted digitally).
+ *
+ * The file's actual bytes must match the type the client declared — the
+ * upload middleware only sees the (spoofable) Content-Type header, so
+ * this is where a renamed text file posing as a PDF gets rejected.
  */
 export async function uploadDocument(input: UploadDocumentInput) {
+  if (!contentMatchesDeclaredType(input.buffer, input.declaredMimeType)) {
+    throw new ValidationError("File content does not match its declared type (expected a real PDF, JPG, or PNG)");
+  }
+
   const previousCurrent = await prisma.document.findFirst({
     where: { applicationId: input.applicationId, docType: input.docType, current: true },
   });

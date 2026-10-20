@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: LATS API — Loan Application Tracking System
-  version: "0.6.0"
+  version: "0.6.1"
   description: >
     Contract for the endpoints that are implemented today (Phase 1, Steps 1–6).
     Six-stage workflow: Sales → HOD → Credit Review → Internal Control → MD →
@@ -542,8 +542,11 @@ paths:
       tags: [Documents]
       summary: Upload a document
       description: >
-        Requires `document:upload`. PDF, JPG or PNG, up to 10 MB. Uploading the
-        same `docType` again creates a new version and marks the previous one
+        Requires `document:upload`. PDF, JPG or PNG, up to 10 MB. The file's
+        actual content must match its declared type (checked from the file's
+        leading bytes, not just the `Content-Type` header) — a text file
+        renamed to `.pdf` is rejected with `422`. Uploading the same
+        `docType` again creates a new version and marks the previous one
         `current: false`; nothing is overwritten. New documents start as
         `pending`.
       requestBody:

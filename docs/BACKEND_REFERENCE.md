@@ -227,6 +227,8 @@ PATCH /applications/:id/documents/:documentId  { "status": "verified" }   (requi
 ```
 Upload is `multipart/form-data`: fields `file` (PDF/JPG/PNG, ≤10MB) and `docType` (free text — no fixed list, build the picker from whatever your UI wants to call things, not from anything the server defines). Re-uploading the same `docType` creates a new version and keeps the old one (`current: false`) rather than replacing it.
 
+The file's actual content has to match the type it's declared as: the server checks the leading bytes (PDF `%PDF-`, PNG and JPEG signatures), not just the `Content-Type` header. A text file renamed to `.pdf`, or a PNG sent as `application/pdf`, gets `422 VALIDATION_ERROR`. This confirms the file *starts* like a real PDF/JPG/PNG — it is not a full validity check or virus scan.
+
 Document status (`pending`/`verified`/`rejected`/`expired`) is set directly by whoever reviews it — it doesn't gate anything else in the workflow. `document:verify` is held by HOD, Credit Review, Internal Control, Admin — not Sales, MD, or Finance.
 
 ---
@@ -338,7 +340,7 @@ User management (§7a) was also verified end-to-end against a real database: cre
 **Not yet run, only reasoned from the code:**
 - Credit Review's `query`/`decline`, Internal Control's `query`/`reject` — the *shape* is identical to HOD's and MD's, which were tested, but these specific paths haven't been called.
 - `resolve-query` being rejected for the wrong role (only the correct-role path was tested).
-- Document upload's file-type check trusts the declared content type, not the actual file bytes — a text file renamed to end in `.pdf` will be accepted.
+- Document upload's content check (leading-byte signature must match the declared type) is unit-tested at the function level, but hasn't been exercised with a real multipart upload against a running server yet.
 - CORS restriction (`CORS_ALLOWED_ORIGINS`, see §10) — rejecting a disallowed origin with `403` hasn't been exercised against a running server, only unit-tested at the `isOriginAllowed()` function level.
 - `GET /applications` filtering/pagination (`status`, `branch`, `page`, `limit`) — the pagination math and query-schema validation/defaulting are unit-tested, but the endpoint itself hasn't been called against a real database with real data yet.
 

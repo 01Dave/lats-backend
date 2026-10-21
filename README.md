@@ -122,7 +122,11 @@ a Bearer token unless noted.
 `.env.example`) — defaults to allowing any origin so local dev keeps
 working unchanged, set it to a real list before any deployment. `bcrypt`
 is on v6, which removes the `node-pre-gyp`/`tar` vulnerability chain that
-affected v5.
+affected v5. `POST /auth/login` is throttled (default 5 attempts per 15
+minutes per IP + email → `429` with `Retry-After`; tune via
+`LOGIN_MAX_ATTEMPTS`, `LOGIN_WINDOW_MINUTES`, and `TRUST_PROXY_HOPS` behind
+a proxy). The limiter is in-memory, so it's per-instance and resets on
+restart.
 
 **Not yet implemented**: reports, PDF export. (A separate audit log
 beyond the `Approval` trail was deliberately not built — `Approval`

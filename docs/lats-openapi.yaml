@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: LATS API — Loan Application Tracking System
-  version: "0.6.1"
+  version: "0.6.2"
   description: >
     Contract for the endpoints that are implemented today (Phase 1, Steps 1–6).
     Six-stage workflow: Sales → HOD → Credit Review → Internal Control → MD →
@@ -109,6 +109,17 @@ paths:
         "422": { $ref: "#/components/responses/ValidationError" }
         "423":
           description: Account is inactive (`ACCOUNT_INACTIVE`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: >-
+            Too many login attempts for this IP + email (`TOO_MANY_REQUESTS`).
+            Default limit 5 per 15 minutes; a successful login resets the count.
+          headers:
+            Retry-After:
+              description: Seconds until another attempt is allowed
+              schema: { type: integer }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

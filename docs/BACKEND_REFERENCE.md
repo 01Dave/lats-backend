@@ -48,6 +48,16 @@ confirmed by HOD as a single flag on their approval, not a checklist.
 }
 ```
 
+Other responses: `401 INVALID_CREDENTIALS`, `422` (malformed body),
+`423 ACCOUNT_INACTIVE` (correct password, deactivated account), and
+`429 TOO_MANY_REQUESTS` after too many attempts for the same IP + email:
+```json
+{ "code": "TOO_MANY_REQUESTS", "message": "Too many login attempts. Try again in 12 minutes." }
+```
+with a `Retry-After` header (seconds). Default limit is 5 attempts per 15
+minutes; a successful login resets the count. The frontend should show the
+message and disable the form for `Retry-After` seconds.
+
 **GET `/auth/me`** → same `user` shape, minus `name` (not currently returned here — known gap).
 
 ---
@@ -343,10 +353,21 @@ User management (§7a) was also verified end-to-end against a real database: cre
 - Document upload's content check (leading-byte signature must match the declared type) is unit-tested at the function level, but hasn't been exercised with a real multipart upload against a running server yet.
 - CORS restriction (`CORS_ALLOWED_ORIGINS`, see §10) — rejecting a disallowed origin with `403` hasn't been exercised against a running server, only unit-tested at the `isOriginAllowed()` function level.
 - `GET /applications` filtering/pagination (`status`, `branch`, `page`, `limit`) — the pagination math and query-schema validation/defaulting are unit-tested, but the endpoint itself hasn't been called against a real database with real data yet.
+- Login throttling (`429` + `Retry-After` on `/auth/login`) — the limiter class is unit-tested with an injected clock, but the endpoint behavior hasn't been exercised against a running server yet.
 
 ---
 
 ## 10. Deployment config
+
+**`LOGIN_MAX_ATTEMPTS`** (default `5`) and **`LOGIN_WINDOW_MINUTES`**
+(default `15`) — login throttle limits, per IP + email. A set-but-invalid
+value (non-integer, below 1) fails the server at boot. State is in-memory:
+a restart clears all lockouts, and multiple server instances don't share it.
+
+**`TRUST_PROXY_HOPS`** (default `0`) — number of reverse proxies in front
+of the API. Leave at `0` when clients connect directly; set to `1` behind
+a single proxy/tunnel such as ngrok so the throttle sees each client's real
+IP instead of the proxy's.
 
 **`CORS_ALLOWED_ORIGINS`** (env var) — comma-separated list of origins
 allowed to call this API from a browser, e.g.

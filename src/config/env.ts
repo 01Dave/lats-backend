@@ -10,6 +10,9 @@ interface EnvConfig {
   jwtExpiresIn: string;
   fileStorageDir: string;
   corsAllowedOrigins: string[];
+  loginMaxAttempts: number;
+  loginWindowMinutes: number;
+  trustProxyHops: number;
 }
 
 /**
@@ -20,6 +23,24 @@ function required(name: string): string {
   const value = process.env[name];
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+/**
+ * Reads an optional non-negative integer env var. A set-but-invalid value
+ * (e.g. "abc", "-1", "5.5") throws at boot rather than silently falling
+ * back — for a security setting like the login limit, a typo quietly
+ * disabling the protection is worse than refusing to start.
+ */
+function optionalInt(name: string, fallback: number, min: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min) {
+    throw new Error(`Environment variable ${name} must be an integer >= ${min}, got "${raw}"`);
   }
   return value;
 }
@@ -43,4 +64,15 @@ export const env: EnvConfig = {
     .split(",")
     .map((origin) => origin.trim())
     .filter((origin) => origin.length > 0),
+  // Login throttling (see utils/login-throttle.ts): at most this many
+  // attempts per IP+email within the window before /auth/login answers 429.
+  loginMaxAttempts: optionalInt("LOGIN_MAX_ATTEMPTS", 5, 1),
+  loginWindowMinutes: optionalInt("LOGIN_WINDOW_MINUTES", 15, 1),
+  // How many reverse-proxy hops sit in front of this server (ngrok, nginx,
+  // a hosting platform's load balancer). 0 = none, trust nothing — req.ip
+  // is the direct connection. Set to 1 behind a single proxy so req.ip is
+  // the real client rather than the proxy; without this, every client
+  // behind a proxy shares one IP and the login throttle degrades to
+  // per-email only.
+  trustProxyHops: optionalInt("TRUST_PROXY_HOPS", 0, 0),
 };

@@ -26,6 +26,13 @@ function buildCorsOptions(): CorsOptions {
 export function createApp(): Express {
   const app = express();
 
+  // Only trust X-Forwarded-For when told how many proxies are in front of
+  // this server — trusting it blindly would let any client spoof its IP
+  // and sidestep the login throttle. See TRUST_PROXY_HOPS in env.ts.
+  if (env.trustProxyHops > 0) {
+    app.set("trust proxy", env.trustProxyHops);
+  }
+
   app.use(helmet());
   app.use(cors(buildCorsOptions()));
   app.use(express.json());

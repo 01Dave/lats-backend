@@ -199,10 +199,23 @@ deliberately rather than discovering in production:
    default, so local dev and the ngrok tunnel keep working unchanged —
    but it's now a one-line env change to lock down before any real
    deployment, not a code change.
-6. **No login-attempt throttling** on `/auth/login` — there's no rate
-   limiting in front of it yet. (Password reset being admin-only, via
-   `/admin/users/:id/reset-password`, is deliberate — not a gap — there's
-   no self-service password change by design.)
+6. ~~No login-attempt throttling on `/auth/login`.~~ **Fixed.** A
+   sliding-window limiter (`utils/login-throttle.ts`, pure and
+   unit-tested; Express glue in `middleware/login-throttle-middleware.ts`)
+   allows `LOGIN_MAX_ATTEMPTS` (default 5) per `LOGIN_WINDOW_MINUTES`
+   (default 15) for each IP + email pair, then answers `429
+   TOO_MANY_REQUESTS` with a `Retry-After` header. The attempt is counted
+   *before* the password is checked, so a burst of parallel requests
+   can't slip past; blocked attempts aren't counted, so hammering doesn't
+   extend a lockout; a successful login clears the count. Malformed
+   requests (422) never reach it. **Remaining limit:** state is in
+   process memory — it resets on restart and isn't shared between server
+   instances; fine for the current single instance, a multi-instance
+   deployment would need a shared store (e.g. Redis). Behind a reverse
+   proxy or tunnel (ngrok), set `TRUST_PROXY_HOPS`, otherwise every
+   client appears to share the proxy's IP. (Password reset being
+   admin-only, via `/admin/users/:id/reset-password`, is deliberate — not
+   a gap — there's no self-service password change by design.)
 7. **Test coverage is auth-gating only for most new endpoints** (confirms a
    401 with no token) plus unit tests for the state machine, roles, and file
    storage. The full multi-stage workflow was verified by hand against a

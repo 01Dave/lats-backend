@@ -2,14 +2,14 @@ import bcrypt from "bcrypt";
 import { prisma } from "../src/db/client";
 import { RoleName } from "../src/config/roles";
 
-// branch: "Main" on the branch-scoped roles (hod, credit_review) so they
-// can actually see/act on applications created with branch: "Main" in
-// manual testing — application:view:branch matches on this field, so an
-// unset branch here means those users see nothing, by design.
-const SEED_USERS: Array<{ email: string; name: string; role: RoleName; branch?: string }> = [
-  { email: "sales@lats.test", name: "Test Sales", role: "sales", branch: "Main" },
-  { email: "hod@lats.test", name: "Test HOD", role: "hod", branch: "Main" },
-  { email: "creditreview@lats.test", name: "Test Credit Review", role: "credit_review", branch: "Main" },
+const SEED_USERS: Array<{ email: string; name: string; role: RoleName }> = [
+  { email: "sales@lats.test", name: "Test Sales", role: "sales" },
+  { email: "hod@lats.test", name: "Test HOD", role: "hod" },
+  { email: "creditreview@lats.test", name: "Test Credit Review", role: "credit_review" },
+  // A second HOD / Credit Review, so automatic case-owner assignment and
+  // reassignment have more than one person to pick between.
+  { email: "hod2@lats.test", name: "Test HOD Two", role: "hod" },
+  { email: "creditreview2@lats.test", name: "Test Credit Review Two", role: "credit_review" },
   { email: "internalcontrol@lats.test", name: "Test Internal Control", role: "internal_control" },
   { email: "md@lats.test", name: "Test MD", role: "md" },
   { email: "finance@lats.test", name: "Test Finance", role: "finance" },
@@ -22,10 +22,8 @@ async function main(): Promise<void> {
   for (const u of SEED_USERS) {
     await prisma.user.upsert({
       where: { email: u.email },
-      // update runs on every re-seed too, so an existing seeded user's
-      // branch gets corrected if this list changes, not just on first create.
-      update: { branch: u.branch ?? null },
-      create: { email: u.email, name: u.name, role: u.role, passwordHash, branch: u.branch },
+      update: {},
+      create: { email: u.email, name: u.name, role: u.role, passwordHash },
     });
   }
 

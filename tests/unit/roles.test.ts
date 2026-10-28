@@ -1,4 +1,4 @@
-import { permissionsForRole, roleRequiresBranch } from "../../src/config/roles";
+import { permissionsForRole } from "../../src/config/roles";
 
 describe("permissionsForRole", () => {
   it("gives HOD the hod:approve permission", () => {
@@ -18,17 +18,29 @@ describe("permissionsForRole", () => {
   });
 });
 
-describe("roleRequiresBranch", () => {
-  it("requires a branch for the branch-scoped roles", () => {
-    expect(roleRequiresBranch("sales")).toBe(true);
-    expect(roleRequiresBranch("hod")).toBe(true);
-    expect(roleRequiresBranch("credit_review")).toBe(true);
+describe("visibility permissions (single-branch bank)", () => {
+  it("lets every stage reviewer see all applications", () => {
+    for (const role of ["hod", "credit_review", "internal_control", "md", "finance", "admin"] as const) {
+      expect(permissionsForRole(role)).toContain("application:view:all");
+    }
   });
 
-  it("does not require a branch for the view:all roles", () => {
-    expect(roleRequiresBranch("internal_control")).toBe(false);
-    expect(roleRequiresBranch("md")).toBe(false);
-    expect(roleRequiresBranch("finance")).toBe(false);
-    expect(roleRequiresBranch("admin")).toBe(false);
+  it("keeps Sales limited to their own applications", () => {
+    const perms = permissionsForRole("sales");
+    expect(perms).toContain("application:view:own");
+    expect(perms).not.toContain("application:view:all");
+  });
+
+  it("gives only admin the application:assign permission", () => {
+    expect(permissionsForRole("admin")).toContain("application:assign");
+    for (const role of ["sales", "hod", "credit_review", "internal_control", "md", "finance"] as const) {
+      expect(permissionsForRole(role)).not.toContain("application:assign");
+    }
+  });
+
+  it("no longer hands out a branch-scoped view permission to anyone", () => {
+    for (const role of ["sales", "hod", "credit_review", "internal_control", "md", "finance", "admin"] as const) {
+      expect(permissionsForRole(role) as string[]).not.toContain("application:view:branch");
+    }
   });
 });

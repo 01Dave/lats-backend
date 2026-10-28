@@ -1,8 +1,8 @@
 import bcrypt from "bcrypt";
 import { prisma } from "../db/client";
-import { RoleName, roleRequiresBranch } from "../config/roles";
+import { RoleName } from "../config/roles";
 import { AuthenticatedUser } from "../middleware/auth-middleware";
-import { ValidationError, NotFoundError, ConflictError, ForbiddenError } from "../utils/errors";
+import { NotFoundError, ConflictError, ForbiddenError } from "../utils/errors";
 
 // Same cost factor as scripts/seed.ts — kept as one constant so the two
 // don't silently drift apart.
@@ -20,14 +20,9 @@ export interface CreateUserInput {
   name: string;
   password: string;
   role: RoleName;
-  branch?: string;
 }
 
 export async function createUser(input: CreateUserInput) {
-  if (roleRequiresBranch(input.role) && !input.branch) {
-    throw new ValidationError(`branch is required for role '${input.role}'`);
-  }
-
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) {
     throw new ConflictError(`A user with email '${input.email}' already exists`);
@@ -40,7 +35,6 @@ export async function createUser(input: CreateUserInput) {
       email: input.email,
       name: input.name,
       role: input.role,
-      branch: input.branch ?? null,
       passwordHash,
     },
   });
@@ -64,7 +58,6 @@ export async function getUserById(id: string) {
 export interface UpdateUserInput {
   name?: string;
   role?: RoleName;
-  branch?: string | null;
   active?: boolean;
 }
 
@@ -89,18 +82,11 @@ export async function updateUser(actor: AuthenticatedUser, id: string, input: Up
     }
   }
 
-  const nextRole = input.role ?? (user.role as RoleName);
-  const nextBranch = input.branch !== undefined ? input.branch : user.branch;
-  if (roleRequiresBranch(nextRole) && !nextBranch) {
-    throw new ValidationError(`branch is required for role '${nextRole}'`);
-  }
-
   const updated = await prisma.user.update({
     where: { id },
     data: {
       name: input.name,
       role: input.role,
-      branch: input.branch === undefined ? undefined : input.branch,
       active: input.active,
     },
   });

@@ -2,12 +2,14 @@ import { Router } from "express";
 import authRoutes from "./auth-routes";
 import applicationRoutes from "./application-routes";
 import adminRoutes from "./admin-routes";
+import metaRoutes from "./meta-routes";
 
 const router = Router();
 
 router.use("/auth", authRoutes);
 router.use("/applications", applicationRoutes);
 router.use("/admin", adminRoutes);
+router.use("/meta", metaRoutes);
 
 // Added in later steps: comments, approvals (with a simple kycConfirmed
 // flag folded into the HOD decision), disbursement, admin user management

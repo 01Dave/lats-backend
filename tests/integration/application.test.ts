@@ -35,3 +35,31 @@ describe("PATCH /api/v1/applications/:id", () => {
   // seeded test database — battle-tested manually against a real database
   // instead (see chat).
 });
+
+describe("GET /api/v1/meta/loan-types", () => {
+  const app = createApp();
+
+  it("rejects a request with no bearer token (401)", async () => {
+    const res = await request(app).get("/api/v1/meta/loan-types");
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("case owner endpoints", () => {
+  const app = createApp();
+  const fakeId = "00000000-0000-0000-0000-000000000000";
+
+  it("POST /:id/assign rejects a request with no bearer token (401)", async () => {
+    const res = await request(app).post(`/api/v1/applications/${fakeId}/assign`).send({ assigneeId: fakeId });
+    expect(res.status).toBe(401);
+  });
+
+  it("GET /:id/assignments rejects a request with no bearer token (401)", async () => {
+    const res = await request(app).get(`/api/v1/applications/${fakeId}/assignments`);
+    expect(res.status).toBe(401);
+  });
+
+  // The assignment flow itself (auto-assign on submit, owner following the
+  // case through queries, reassign rules) needs a seeded database with
+  // several users per role — battle-tested manually instead.
+});

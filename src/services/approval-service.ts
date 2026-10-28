@@ -4,6 +4,7 @@ import { ApplicationStatus } from "../workflow/statuses";
 import { ValidationError, NotFoundError } from "../utils/errors";
 import { AuthenticatedUser } from "../middleware/auth-middleware";
 import { getApplicationById } from "./application-service";
+import { chooseOwnerId, recordAssignment } from "./assignment-service";
 
 type ApprovalStage = "HOD" | "CREDIT_REVIEW" | "INTERNAL_CONTROL" | "MD" | "FINANCE" | "WITHDRAWAL";
 type ApprovalDecision = "APPROVE" | "QUERY" | "DECLINE" | "REJECT" | "RESOLVE" | "WITHDRAW" | "DISBURSE";
@@ -44,9 +45,18 @@ async function executeDecision(params: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     tx: any,
   ) => {
+    // Ownership follows the case: pick who holds it at its new stage (null
+    // once closed) in the same transaction as the status change.
+    const ownerId = await chooseOwnerId(tx, application, result.status);
     const updated = await tx.application.update({
       where: { id: params.applicationId },
-      data: { status: result.status, ...params.extraApplicationData },
+      data: { status: result.status, ownerId, ...params.extraApplicationData },
+    });
+    await recordAssignment(tx, {
+      applicationId: params.applicationId,
+      assigneeId: ownerId,
+      assignedById: null,
+      status: result.status,
     });
 
     await tx.approval.create({

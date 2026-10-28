@@ -8,6 +8,7 @@ import {
   withdrawSchema,
   updateApplicationSchema,
   listApplicationsQuerySchema,
+  assignSchema,
 } from "../validators/application-validator";
 import { setDocumentStatusSchema } from "../validators/document-validator";
 import {
@@ -26,6 +27,8 @@ import {
   getApplicationController,
   submitApplicationController,
   withdrawApplicationController,
+  reassignCaseController,
+  listAssignmentsController,
 } from "../api/application-controller";
 import {
   listDocumentsController,
@@ -61,6 +64,13 @@ router.post(
   validateBody(withdrawSchema),
   withdrawApplicationController,
 );
+
+// ---------- Case owner ----------
+// No requirePermission wrapper: the owner (any role) or an admin
+// (application:assign) may reassign — decided inside the service, since
+// "is the owner" depends on the specific application.
+router.post("/:id/assign", validateBody(assignSchema), reassignCaseController);
+router.get("/:id/assignments", listAssignmentsController);
 
 // ---------- Documents ----------
 // Uploaded and stored digitally, but vetted independently of any

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: LATS API — Loan Application Tracking System
-  version: "0.6.2"
+  version: "0.8.0"
   description: >
     Contract for the endpoints that are implemented today (Phase 1, Steps 1–6).
     Six-stage workflow: Sales → HOD → Credit Review → Internal Control → MD →
@@ -26,13 +26,25 @@ info:
 
     **`GET /applications` response shape changed** (breaking): it now
     returns `{ data, pagination }` instead of a bare array, and accepts
-    `status`/`branch`/`page`/`limit` query params. `status`/`branch` only
-    narrow a caller's own visibility scope, never widen it.
+    `status`/`page`/`limit` query params. `status` only narrows a caller's
+    own visibility scope, never widens it.
+
+
+    **Single branch:** the bank is single-branch, so `branch` is no longer
+    an input anywhere (applications, the list query, admin users). Clients
+    that still send it are tolerated — it is ignored, not rejected. HOD and
+    Credit Review now hold `application:view:all`; `application:view:branch`
+    no longer exists. Only Sales are limited to their own applications.
+
+
+    **Input rules:** `productName` must be one of the 8 approved loan types
+    (`GET /meta/loan-types`); `purpose` accepts letters and single spaces
+    only; `requestedAmount` and `tenorMonths` accept any positive value (no
+    upper limit).
 
 
     **Not implemented yet:** editing an application once it's past DRAFT
-    (including after a query response), PDF export, reports, case-owner
-    assignment/reassignment. (Self-service password change and a
+    (including after a query response), PDF export, reports. (Self-service password change and a
     separate audit-log endpoint are both deliberately out of scope —
     password reset is admin-only by design, and the `Approval` table
     already is the audit trail for workflow decisions.)
@@ -50,6 +62,7 @@ tags:
   - name: Comments
   - name: Documents
   - name: Admin
+  - name: Reference
 
 paths:
   /health:
@@ -152,20 +165,20 @@ paths:
       summary: List applications visible to the caller
       description: >
         Scoped server-side by permission: `application:view:own` (Sales — only
-        applications they created), `application:view:branch` (HOD, Credit
-        Review — same branch), `application:view:all` (Internal Control, MD,
-        Finance, Admin). `status`/`branch` filter on top of that scope — they
-        can only narrow the result, never show something outside it. Newest
-        first within a page.
+        applications they created) or `application:view:all` (HOD, Credit
+        Review, Internal Control, MD, Finance, Admin). `status` filters on top
+        of that scope — it can only narrow the result, never show something
+        outside it. Newest first within a page.
       parameters:
         - name: status
           in: query
           required: false
           schema: { $ref: "#/components/schemas/ApplicationStatus" }
-        - name: branch
+        - name: owner
           in: query
           required: false
-          schema: { type: string, minLength: 1 }
+          description: "`me` returns only applications the caller currently owns (a personal work queue)."
+          schema: { type: string, enum: [me] }
         - name: page
           in: query
           required: false
@@ -262,6 +275,60 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/InvalidTransition" }
+
+  /applications/{id}/assign:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      tags: [Applications]
+      summary: Reassign the case owner
+      description: >-
+        Allowed for the application's current owner, or an admin
+        (`application:assign`). The new owner must be an active user in the
+        role that owns the application's current stage. Display-only:
+        ownership never limits who may act. Draft, `HOD_QUERY` and closed
+        applications can't be reassigned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assigneeId]
+              properties:
+                assigneeId: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Reassigned; the application with its new `owner`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Status can't be reassigned, or the user already owns it
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /applications/{id}/assignments:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    get:
+      tags: [Applications]
+      summary: Case-owner history, oldest first
+      responses:
+        "200":
+          description: Every assignment of this case
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Assignment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /applications/{id}/withdraw:
     parameters:
@@ -631,14 +698,31 @@ paths:
         "422": { $ref: "#/components/responses/ValidationError" }
 
   # ---------- ADMIN ----------
+  /meta/loan-types:
+    get:
+      tags: [Reference]
+      summary: The approved loan types, in display order
+      description: Any signed-in user. Fills the loan-type dropdown; the API rejects any other `productName`.
+      responses:
+        "200":
+          description: The 8 approved loan types
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/LoanType" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /admin/users:
     post:
       tags: [Admin]
       summary: Create a user
       description: >
-        Requires `admin:users`. `branch` is required when `role` is
-        `sales`, `hod`, or `credit_review` (the branch-scoped roles) and
-        optional otherwise. `email` must be unique.
+        Requires `admin:users`. `email` must be unique. Users have no branch
+        (a leftover `branch` in the body is ignored).
       requestBody:
         required: true
         content:
@@ -651,7 +735,6 @@ paths:
                 name: { type: string, minLength: 1 }
                 password: { type: string, minLength: 8, description: Set directly by the admin; no email/token flow. }
                 role: { $ref: "#/components/schemas/Role" }
-                branch: { type: string, minLength: 1 }
       responses:
         "201":
           description: Created
@@ -702,9 +785,7 @@ paths:
       description: >
         Requires `admin:users`. At least one field required. An admin
         cannot deactivate their own account or change their own role away
-        from `admin` — `403`, even though they hold `admin:users`. Same
-        branch-requirement rule as create applies when `role` is changed
-        (or already is) one of the branch-scoped roles.
+        from `admin` — `403`, even though they hold `admin:users`.
       requestBody:
         required: true
         content:
@@ -714,7 +795,6 @@ paths:
               properties:
                 name: { type: string, minLength: 1 }
                 role: { $ref: "#/components/schemas/Role" }
-                branch: { type: string, minLength: 1, nullable: true }
                 active: { type: boolean }
       responses:
         "200":
@@ -836,7 +916,10 @@ components:
         email: { type: string, format: email }
         name: { type: string }
         role: { $ref: "#/components/schemas/Role" }
-        branch: { type: string, nullable: true }
+        branch:
+          type: string
+          nullable: true
+          description: Deprecated and unused — users no longer belong to a branch. May still hold an old value.
         active: { type: boolean }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
@@ -872,28 +955,47 @@ components:
 
     ApplicationCreateRequest:
       type: object
-      required: [branch, productName, customerName, customerPhone, requestedAmount, tenorMonths, purpose]
+      required: [productName, customerName, customerPhone, requestedAmount, tenorMonths, purpose]
+      description: There is no `branch` field (single-branch bank); a leftover one is ignored.
       properties:
-        branch: { type: string, minLength: 1 }
-        productName: { type: string, minLength: 1, description: Free text — there is no product catalog }
+        productName: { $ref: "#/components/schemas/LoanType" }
         customerName: { type: string, minLength: 1 }
         customerPhone: { type: string, minLength: 1 }
-        requestedAmount: { type: number, exclusiveMinimum: true, minimum: 0 }
-        tenorMonths: { type: integer, minimum: 1 }
-        purpose: { type: string, minLength: 1 }
+        requestedAmount: { type: number, exclusiveMinimum: true, minimum: 0, description: Any amount above zero; no maximum. }
+        tenorMonths: { type: integer, minimum: 1, description: Any whole number of months above zero; no maximum. }
+        purpose: { $ref: "#/components/schemas/Purpose" }
 
     ApplicationUpdateRequest:
       type: object
       description: Same fields as ApplicationCreateRequest, all optional — send only what's changing.
       minProperties: 1
       properties:
-        branch: { type: string, minLength: 1 }
-        productName: { type: string, minLength: 1 }
+        productName: { $ref: "#/components/schemas/LoanType" }
         customerName: { type: string, minLength: 1 }
         customerPhone: { type: string, minLength: 1 }
         requestedAmount: { type: number, exclusiveMinimum: true, minimum: 0 }
         tenorMonths: { type: integer, minimum: 1 }
-        purpose: { type: string, minLength: 1 }
+        purpose: { $ref: "#/components/schemas/Purpose" }
+
+    LoanType:
+      type: string
+      description: One of the 8 approved loan types. The same list is served by `GET /meta/loan-types`.
+      enum:
+        - Business/Working Capital
+        - Lease/Asset Finance
+        - Nigeria Custom Service Business
+        - SFL Travel Advance
+        - Payroll Federal FCT
+        - Payroll Federal Police
+        - Personal/Payday Loan
+        - Self-School Educational Loan Fund
+
+    Purpose:
+      type: string
+      description: >-
+        Letters (any alphabet) and single spaces between words only — no digits
+        or symbols. Surrounding whitespace is trimmed.
+      example: Working capital
 
     Application:
       type: object
@@ -901,8 +1003,11 @@ components:
         id: { type: string, format: uuid }
         appNumber: { type: string, example: LN-2026-000001 }
         status: { $ref: "#/components/schemas/ApplicationStatus" }
-        branch: { type: string }
-        productName: { type: string }
+        branch:
+          type: string
+          example: Main
+          description: Always "Main" (single-branch bank). Not an input; ignore it.
+        productName: { type: string, description: "One of the 8 loan types for applications created after this rule; older rows may hold free text." }
         customerName: { type: string }
         customerPhone: { type: string }
         requestedAmount:
@@ -922,9 +1027,41 @@ components:
         disbursementReference: { type: string, nullable: true }
         disbursedById: { type: string, format: uuid, nullable: true }
         disbursedAt: { type: string, format: date-time, nullable: true }
+        ownerId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Current case owner (null once closed, or when nobody is eligible). Display-only.
+        owner:
+          allOf:
+            - $ref: "#/components/schemas/CaseOwner"
+          nullable: true
+          description: Present on GET responses only; action endpoints return `ownerId` alone.
         createdById: { type: string, format: uuid }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+
+    CaseOwner:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+
+    Assignment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        applicationId: { type: string, format: uuid }
+        status:
+          $ref: "#/components/schemas/ApplicationStatus"
+        assignee: { $ref: "#/components/schemas/CaseOwner" }
+        assignedBy:
+          allOf:
+            - $ref: "#/components/schemas/CaseOwner"
+          nullable: true
+          description: null when the system assigned it automatically.
+        createdAt: { type: string, format: date-time }
 
     PaginationMeta:
       type: object

@@ -24,12 +24,17 @@ model User {
   passwordHash String
   name         String
   role         RoleName
+  // Deprecated: the bank is single-branch, so nothing reads or writes this
+  // any more. Kept (not dropped) so existing data is untouched.
   branch       String?
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   applicationsCreated Application[] @relation("ApplicationCreatedBy")
+  applicationsOwned   Application[] @relation("ApplicationOwner")
+  assignmentsReceived Assignment[]  @relation("AssignmentAssignee")
+  assignmentsMade     Assignment[]  @relation("AssignmentAssignedBy")
   approvals           Approval[]
   comments            Comment[]
 
@@ -70,7 +75,9 @@ model Application {
   id               String            @id @default(uuid())
   appNumber        String            @unique
   status           ApplicationStatus @default(DRAFT)
-  branch           String
+  // Single-branch bank: not an input any more, always takes this default.
+  // Column kept so existing rows and reporting stay intact.
+  branch           String            @default("Main")
   productName      String
   customerName     String
   customerPhone    String
@@ -99,13 +106,22 @@ model Application {
   createdById      String
   createdBy        User              @relation("ApplicationCreatedBy", fields: [createdById], references: [id])
 
+  // Case owner: the one person responsible for the case at its CURRENT
+  // stage. Display only — it never gates who may act (the state machine
+  // does that). Set automatically on every transition (see
+  // services/assignment-service.ts) and null once the case is closed.
+  ownerId          String?
+  owner            User?             @relation("ApplicationOwner", fields: [ownerId], references: [id])
+
   documents        Document[]
   approvals        Approval[]
   comments         Comment[]
+  assignments      Assignment[]
 
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
+  @@index([ownerId])
   @@map("loan_applications")
 }
 
@@ -171,8 +187,8 @@ enum ApprovalDecision {
 // text came with the decision (mandatory for QUERY/DECLINE/REJECT/WITHDRAW,
 // optional for APPROVE/RESOLVE... actually RESOLVE requires one too, see
 // approval-service.ts) rather than duplicating it into a separate Comment
-// row. `stage` is null for WITHDRAWAL, which isn't owned by any one
-// approval stage.
+// row. `stage` is null only for query resolutions (RESOLVE), which aren't
+// owned by any one approval stage; withdrawal uses stage WITHDRAWAL.
 model Approval {
   id              String            @id @default(uuid())
   applicationId   String
@@ -201,4 +217,25 @@ model Comment {
   createdAt     DateTime    @default(now())
 
   @@map("comments")
+}
+
+// History of who held each case and when it changed hands. One row per
+// assignment, written in the same transaction as the status change that
+// caused it (or the manual reassignment). assignedById is null for
+// automatic assignment. `status` is the application's status at that
+// moment, so the history reads "HOD_IN_REVIEW -> Ada", etc.
+model Assignment {
+  id            String            @id @default(uuid())
+  applicationId String
+  application   Application       @relation(fields: [applicationId], references: [id])
+  assigneeId    String
+  assignee      User              @relation("AssignmentAssignee", fields: [assigneeId], references: [id])
+  assignedById  String?
+  assignedBy    User?             @relation("AssignmentAssignedBy", fields: [assignedById], references: [id])
+  status        ApplicationStatus
+  createdAt     DateTime          @default(now())
+
+  @@index([applicationId])
+  @@index([assigneeId])
+  @@map("case_assignments")
 }

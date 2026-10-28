@@ -14,7 +14,7 @@ Node.js, Express, TypeScript (strict), PostgreSQL via Prisma, JWT auth
 ```
 src/
   api/            thin controllers — parse request, call a service, shape the response
-  config/         env.ts (fails fast on missing required vars), roles.ts (permission map)
+  config/         env.ts (fails fast on missing required vars), roles.ts (permission map), loan-types.ts (the 8 approved loan types)
   db/             Prisma client singleton
   middleware/     auth, RBAC, validation, upload, error handling, catchAsync
   routes/         Express routers — this is the map of every real endpoint
@@ -78,6 +78,30 @@ in scope, so this didn't need its own table.
 **Withdraw** is handled separately from the table above because it's valid
 from almost any open status, not from one specific one.
 
+## Validation rules from the business
+
+Three input rules live in `validators/application-validator.ts` (Joi), so
+they hold no matter which client calls the API:
+
+- **Loan type.** `productName` must be one of the 8 approved types in
+  `config/loan-types.ts` (pure, unit-tested). The same array is served by
+  `GET /meta/loan-types` for the frontend dropdown, so there is one list.
+  Changing the list is a code change by design. Existing rows keep whatever
+  free text they were created with; the rule applies to create and edit.
+- **Purpose.** Letters (any alphabet) and single spaces between words only
+  (`PURPOSE_PATTERN`) — no digits or symbols. Surrounding whitespace is
+  trimmed.
+- **Amount and tenor.** Deliberately unlimited: `requestedAmount` any
+  positive number, `tenorMonths` any positive whole number. Sales treats
+  both as flexible, so no min/max was added. Without a ceiling, a typo like
+  an extra zero is not caught by the API. Adding limits later is a small
+  validator change.
+
+Clients that still send `branch` (create/update application, the list query,
+or the admin user endpoints) are tolerated: the validators drop it with
+`Joi.any().strip()` instead of returning `422`, so the frontend and backend
+can be updated in either order.
+
 ## Decisions and history
 
 `approval-service.ts` is the layer above the state machine — it takes a
@@ -93,8 +117,14 @@ any specific decision.
 
 ## Visibility scoping
 
-`application:view:own` / `:branch` / `:all` are enforced in one place —
+`application:view:own` / `:all` are enforced in one place —
 `visibilityWhere()` in `application-service.ts` — used by every read path.
+Sales see only the applications they created (`own`); every other role sees
+all of them (`all`). There is no branch scoping: the bank is single-branch,
+so `application:view:branch` and the `roleRequiresBranch()` rule were
+removed. `Application.branch` stays as a column (default `"Main"`) and is
+still returned in responses, but it is not an input and nothing filters on
+it.
 An application outside the caller's scope returns `404`, not `403`, so a
 Sales user can't tell the difference between "doesn't exist" and "exists but
 isn't theirs."
@@ -102,8 +132,8 @@ isn't theirs."
 **Filtering and pagination** on `GET /applications` build on top of this,
 not instead of it: `listApplicationsQuerySchema`
 (`validators/application-validator.ts`) validates/defaults `status`,
-`branch`, `page`, `limit` from the query string, then
-`listApplications()` spreads `status`/`branch` into the same `where`
+`page`, `limit` from the query string, then
+`listApplications()` spreads `status` into the same `where`
 clause *after* `visibilityWhere()` — so a filter can only narrow an
 already-scoped result, never escape it. Pagination math
 (`totalPages`, the zero-total edge case) lives in `utils/pagination.ts`,
@@ -111,6 +141,48 @@ pure and independently unit-tested, same convention as `roles.ts`/
 `cors.ts`. The response is now an envelope (`{ data, pagination }`), a
 breaking change from the previous bare-array shape — flag this to
 whoever's consuming the endpoint on the frontend.
+
+## Case owner
+
+Every application has an `ownerId` — the one person responsible for it at
+its **current stage**. It is display-only: the state machine, not
+ownership, decides who may act, so a case never gets stuck behind an
+absent owner. Anyone in the right role can still approve, reject or query.
+
+The rules are pure (`utils/assignment.ts`, unit-tested, same convention as
+`roles.ts`/`pagination.ts`):
+- `ownerTargetForStatus()` — which role owns each resting status
+  (`HOD_IN_REVIEW`→hod, `CREDIT_IN_REVIEW`→credit_review, `IC_IN_REVIEW`→
+  internal_control, `PENDING_MD`→md, `PENDING_DISBURSEMENT`→finance). A
+  query hands the case to whoever must answer it (`HOD_QUERY`→the Sales
+  creator, `CREDIT_QUERY`→hod, `IC_QUERY`→credit_review). Drafts belong to
+  their creator. Closed statuses have no owner (`ownerId` is cleared).
+- `pickAssignee()` — least-loaded eligible user wins; ties go to whoever was
+  assigned a case longest ago. Stateless: no stored "whose turn" pointer.
+- `assigneeProblem()` — validates a manual reassignment.
+
+`services/assignment-service.ts` does the database side. `chooseOwnerId()`
+is called **inside the same transaction as every status change**
+(`executeDecision()` in approval-service, plus submit and withdraw in
+application-service), so status and owner can't drift apart. It prefers
+whoever from the target role already handled this case, so a query comes
+back to the reviewer who raised it; otherwise it picks the least-loaded
+active user in that role. With nobody eligible the owner is simply `null`
+and the case is still actionable. Each assignment to a person writes a row
+to `case_assignments` (the history); automatic ones have `assignedById:
+null`.
+
+**Manual override** (`POST /applications/:id/assign`,
+`services/reassignment-service.ts`): the current owner can hand the case to
+a colleague, and an admin (`application:assign`) can reassign any case.
+The new owner must be an active user in the stage's role. The creator-owned
+statuses (draft, `HOD_QUERY`) can't be reassigned. It lives in its own
+service file because it reads through `getApplicationById()` for visibility
+scoping, which would otherwise make `application-service` and
+`assignment-service` import each other.
+
+Cases created before this feature have no owner until their next status
+change; an admin can set one with the assign endpoint.
 
 ## User management
 
@@ -129,14 +201,12 @@ out-of-band by the same admin anyway. `passwordHash` is never returned by
 any of these endpoints (`toSafeUser()` strips it before the response
 leaves the service layer, not at the controller).
 
-`roleRequiresBranch()` lives in `config/roles.ts`, next to
-`permissionsForRole()` — it's a role-config fact (which roles are scoped by
-`application:view:branch`), not service logic, so it stays free of any
-Prisma dependency and is independently unit-testable. Creating or
-reassigning a user into `sales`/`hod`/`credit_review` without a `branch` is
-rejected with `422` — this is the exact bug that bit HOD's seed data once
-before (see `scripts/seed.ts`'s comment), now enforced instead of just
-documented.
+Users no longer carry a branch requirement. (It used to be enforced by
+`roleRequiresBranch()`, which guarded against a branch-scoped user with no
+branch seeing nothing; with branch scoping gone that failure mode no longer
+exists.) `User.branch` remains as an unused column so existing data is
+untouched; the admin endpoints tolerate and ignore a leftover `branch`
+field.
 
 An admin cannot deactivate their own account or change their own role away
 from `admin`, via either endpoint — `403`, not silently ignored — because
@@ -181,12 +251,12 @@ deliberately rather than discovering in production:
    editing during a query should be allowed is a separate, deliberately
    undecided question (see project notes).
 3. ~~No status/branch filtering or pagination on `GET /applications`.~~
-   **Fixed.** `status`/`branch` query params narrow the result on top of
-   the caller's own visibility scope; `page`/`limit` paginate (default
+   **Fixed.** The `status` query param narrows the result on top of
+   the caller's own visibility scope (a `branch` filter existed briefly and
+   was removed with branch scoping); `page`/`limit` paginate (default
    `20`, capped `100`). Response shape changed from a bare array to
-   `{ data, pagination }` — see `docs/BACKEND_REFERENCE.md` §3. **No
-   case-owner assignment or reassignment yet** — that's still open,
-   deliberately scoped out of this round as a separate, bigger feature.
+   `{ data, pagination }` — see `docs/BACKEND_REFERENCE.md` §3. Case-owner
+   assignment has since been built (see "Case owner" above).
 4. ~~Document upload trusts the declared MIME type.~~ **Fixed.**
    `document-service.ts` now checks the file's leading bytes against the
    declared type (`utils/file-signature.ts`) and rejects a mismatch with

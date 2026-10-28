@@ -5,9 +5,12 @@ import { NotFoundError, ConflictError } from "../utils/errors";
 import { AuthenticatedUser } from "../middleware/auth-middleware";
 import { ApplicationStatus } from "../workflow/statuses";
 import { buildPaginationMeta } from "../utils/pagination";
+import { chooseOwnerId, recordAssignment, Tx } from "./assignment-service";
+
+// Who the application is shown as owned by. Kept to the fields a UI needs.
+const OWNER_INCLUDE = { owner: { select: { id: true, name: true, role: true } } };
 
 export interface CreateApplicationInput {
-  branch: string;
   productName: string;
   customerName: string;
   customerPhone: string;
@@ -23,7 +26,8 @@ export async function createApplication(actor: AuthenticatedUser, input: CreateA
     data: {
       appNumber,
       status: "DRAFT",
-      branch: input.branch,
+      // branch is no longer an input: the bank is single-branch, so the
+      // column just takes its database default ("Main").
       productName: input.productName,
       customerName: input.customerName,
       customerPhone: input.customerPhone,
@@ -35,13 +39,16 @@ export async function createApplication(actor: AuthenticatedUser, input: CreateA
       tenorMonths: input.tenorMonths,
       purpose: input.purpose,
       createdById: actor.id,
+      // A draft belongs to the Sales user who created it; ownership moves
+      // on automatically with every transition (see assignment-service.ts).
+      ownerId: actor.id,
     },
   });
 }
 
 /**
  * Narrower than Prisma's generated ApplicationWhereInput on purpose — this
- * file only ever builds one of these three shapes. Written by hand rather
+ * file only ever builds one of these two shapes. Written by hand rather
  * than imported from the generated client because that client falls back
  * to a permissive `any` stub whenever `prisma generate` can't reach its
  * engine binary (e.g. in this sandbox); on a machine with real network
@@ -50,21 +57,17 @@ export async function createApplication(actor: AuthenticatedUser, input: CreateA
  */
 interface ApplicationVisibilityWhere {
   id?: string;
-  branch?: string;
   createdById?: string;
 }
 
 /**
  * Builds the Prisma `where` clause enforcing application:view:own /
- * :branch / :all — the single place visibility scope is decided, so
+ * :all — the single place visibility scope is decided, so
  * every read path (getApplicationById, listApplications) stays consistent.
  */
 function visibilityWhere(actor: AuthenticatedUser): ApplicationVisibilityWhere {
   if (actor.permissions.includes("application:view:all")) {
     return {};
-  }
-  if (actor.permissions.includes("application:view:branch")) {
-    return { branch: actor.branch ?? "__no_branch__" };
   }
   if (actor.permissions.includes("application:view:own")) {
     return { createdById: actor.id };
@@ -76,6 +79,7 @@ function visibilityWhere(actor: AuthenticatedUser): ApplicationVisibilityWhere {
 export async function getApplicationById(actor: AuthenticatedUser, id: string) {
   const application = await prisma.application.findFirst({
     where: { id, ...visibilityWhere(actor) },
+    include: OWNER_INCLUDE,
   });
 
   // NotFoundError rather than ForbiddenError for out-of-scope records —
@@ -89,17 +93,16 @@ export async function getApplicationById(actor: AuthenticatedUser, id: string) {
 
 export interface ListApplicationsFilters {
   status?: ApplicationStatus;
-  branch?: string;
+  /** "me" = only applications the caller currently owns. */
+  owner?: "me";
   page: number;
   limit: number;
 }
 
 /**
- * status/branch narrow the result on top of visibilityWhere() — spread
- * order matters here: filters come after the spread so they can only add
- * constraints, never override/widen the actor's own scope (e.g. a
- * branch-scoped HOD passing branch=SomeOtherBranch just gets zero rows,
- * not a bypass of their own branch restriction).
+ * status narrows the result on top of visibilityWhere() — spread order
+ * matters here: filters come after the spread so they can only add
+ * constraints, never override/widen the actor's own scope.
  *
  * Returns an envelope ({ data, pagination }) rather than a bare array —
  * this is a breaking response-shape change from the previous version of
@@ -110,7 +113,7 @@ export async function listApplications(actor: AuthenticatedUser, filters: ListAp
   const where = {
     ...visibilityWhere(actor),
     ...(filters.status ? { status: filters.status } : {}),
-    ...(filters.branch ? { branch: filters.branch } : {}),
+    ...(filters.owner === "me" ? { ownerId: actor.id } : {}),
   };
 
   const skip = (filters.page - 1) * filters.limit;
@@ -118,6 +121,7 @@ export async function listApplications(actor: AuthenticatedUser, filters: ListAp
   const [data, total] = await Promise.all([
     prisma.application.findMany({
       where,
+      include: OWNER_INCLUDE,
       orderBy: { createdAt: "desc" },
       skip,
       take: filters.limit,
@@ -136,7 +140,6 @@ export async function listApplications(actor: AuthenticatedUser, filters: ListAp
  * user who created the application may submit it.
  */
 export interface UpdateApplicationInput {
-  branch?: string;
   productName?: string;
   customerName?: string;
   customerPhone?: string;
@@ -184,15 +187,21 @@ export async function submitApplication(actor: AuthenticatedUser, id: string) {
     actorRole: actor.role,
   });
 
-  return prisma.application.update({
-    where: { id },
-    data: { status: result.status },
+  return prisma.$transaction(async (tx: Tx) => {
+    // Submitting hands the case to an HOD.
+    const ownerId = await chooseOwnerId(tx, application, result.status);
+    const updated = await tx.application.update({
+      where: { id },
+      data: { status: result.status, ownerId },
+    });
+    await recordAssignment(tx, { applicationId: id, assigneeId: ownerId, assignedById: null, status: result.status });
+    return updated;
   });
 }
 
 /**
- * Records the withdrawal comment as an Approval row (stage: null — not
- * owned by any approval stage) so it's actually persisted, rather than
+ * Records the withdrawal comment as an Approval row (stage: "WITHDRAWAL",
+ * decision: "WITHDRAW") so it's actually persisted, rather than
  * validated by the state machine and then discarded.
  */
 export async function withdrawApplication(actor: AuthenticatedUser, id: string, comment: string) {
@@ -218,7 +227,8 @@ export async function withdrawApplication(actor: AuthenticatedUser, id: string, 
   ) => {
     const updated = await tx.application.update({
       where: { id },
-      data: { status: result.status },
+      // A withdrawn case is closed, so it has no owner.
+      data: { status: result.status, ownerId: null },
     });
 
     await tx.approval.create({

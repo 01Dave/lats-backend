@@ -65,8 +65,8 @@ npm run dev
 ## Test users (after seeding)
 All use password `Password123!`:
 - sales@lats.test
-- hod@lats.test
-- creditreview@lats.test
+- hod@lats.test, hod2@lats.test
+- creditreview@lats.test, creditreview2@lats.test
 - internalcontrol@lats.test
 - md@lats.test
 - finance@lats.test
@@ -86,11 +86,16 @@ a Bearer token unless noted.
 
 **Applications**
 - `POST /api/v1/applications` — create (Sales)
-- `GET /api/v1/applications` — list, scoped by role (own / branch / all); optional `status`/`branch`/`page`/`limit` query params; returns `{ data, pagination }`
+- `GET /api/v1/applications` — list, scoped by role (Sales: own; everyone else: all); optional `status`/`owner=me`/`page`/`limit` query params; returns `{ data, pagination }`
 - `GET /api/v1/applications/:id`
 - `PATCH /api/v1/applications/:id` — edit, DRAFT-only, creator-only
 - `POST /api/v1/applications/:id/submit`
 - `POST /api/v1/applications/:id/withdraw` — comment required
+- `POST /api/v1/applications/:id/assign` — reassign the case owner (current owner or admin)
+- `GET /api/v1/applications/:id/assignments` — who has held the case, and when
+
+**Reference data**
+- `GET /api/v1/meta/loan-types` — the 8 approved loan types, for the frontend dropdown (any signed-in user)
 
 **Approval decisions**
 - `POST /api/v1/applications/:id/hod-decision` — approve (requires `kycConfirmed: true`) / query / reject
@@ -112,10 +117,10 @@ a Bearer token unless noted.
 - `PATCH /api/v1/applications/:id/documents/:documentId` — set status (`document:verify` permission)
 
 **User management** (all require `admin:users`)
-- `POST /api/v1/admin/users` — create (`email`, `name`, `password`, `role`, `branch` if role requires one)
+- `POST /api/v1/admin/users` — create (`email`, `name`, `password`, `role`)
 - `GET /api/v1/admin/users` — list
 - `GET /api/v1/admin/users/:id` — get one
-- `PATCH /api/v1/admin/users/:id` — update name/role/branch/active
+- `PATCH /api/v1/admin/users/:id` — update name/role/active
 - `POST /api/v1/admin/users/:id/reset-password` — admin sets a new password directly
 
 **Security**: CORS is restricted via `CORS_ALLOWED_ORIGINS` (env var, see
@@ -127,6 +132,26 @@ minutes per IP + email → `429` with `Retry-After`; tune via
 `LOGIN_MAX_ATTEMPTS`, `LOGIN_WINDOW_MINUTES`, and `TRUST_PROXY_HOPS` behind
 a proxy). The limiter is in-memory, so it's per-instance and resets on
 restart.
+
+**Case owner**: every application has an owner — the one person responsible
+for it at its current stage, shown on the case and used for an `owner=me`
+work-queue filter. It is assigned automatically on every status change
+(the least-loaded active user in the stage's role), is display-only (it never
+limits who may act), and is cleared once a case closes. Run
+`prisma migrate dev` after pulling this change.
+
+**Single branch**: the bank is single-branch, so branch is no longer an input
+anywhere. New applications take the database default (`"Main"`), HOD and
+Credit Review see all applications (only Sales are limited to their own), and
+users no longer need a branch. A client that still sends `branch` is
+tolerated (the field is ignored), not rejected. Run `prisma migrate dev`
+after pulling this change.
+
+**Validation**: `productName` must be one of the 8 approved loan types
+(`config/loan-types.ts`, served by `GET /meta/loan-types`); `purpose` accepts
+letters and single spaces only; `requestedAmount` and `tenorMonths` accept
+any positive value (no upper limit by decision — Sales treats both as
+flexible).
 
 **Not yet implemented**: reports, PDF export. (A separate audit log
 beyond the `Approval` trail was deliberately not built — `Approval`

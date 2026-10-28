@@ -8,7 +8,6 @@ export interface AuthenticatedUser {
   id: string;
   email: string;
   role: RoleName;
-  branch: string | null;
   permissions: Permission[];
 }
 
@@ -62,7 +61,6 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     id: user.id,
     email: user.email,
     role: user.role as RoleName,
-    branch: user.branch,
     permissions: permissionsForRole(user.role as RoleName),
   };
 

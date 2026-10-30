@@ -90,6 +90,25 @@ function chainSystemTransitions(status: ApplicationStatus): ApplicationStatus {
   return current;
 }
 
+/**
+ * Which named actions `role` may take from `status`, straight from the same
+ * TRANSITIONS table applyAction() enforces, so the two can't drift apart.
+ * Excludes withdraw (it is permission-gated, not role-gated; see
+ * allowed-actions.ts) and returns [] for closed statuses.
+ */
+export function actionsFrom(status: ApplicationStatus, role: RoleName): WorkflowAction[] {
+  if (isClosed(status)) {
+    return [];
+  }
+  return (Object.keys(TRANSITIONS) as WorkflowAction[]).filter((action) => {
+    if (action === "withdraw") {
+      return false;
+    }
+    const rule = TRANSITIONS[action];
+    return rule.from === status && rule.actor === role;
+  });
+}
+
 export interface ApplyActionParams {
   currentStatus: ApplicationStatus;
   action: WorkflowAction;

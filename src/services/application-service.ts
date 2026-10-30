@@ -6,6 +6,7 @@ import { AuthenticatedUser } from "../middleware/auth-middleware";
 import { ApplicationStatus } from "../workflow/statuses";
 import { buildPaginationMeta } from "../utils/pagination";
 import { chooseOwnerId, recordAssignment, Tx } from "./assignment-service";
+import { allowedActions } from "../workflow/allowed-actions";
 
 // Who the application is shown as owned by. Kept to the fields a UI needs.
 const OWNER_INCLUDE = { owner: { select: { id: true, name: true, role: true } } };
@@ -76,6 +77,27 @@ function visibilityWhere(actor: AuthenticatedUser): ApplicationVisibilityWhere {
   return { id: "__none__" };
 }
 
+/**
+ * Adds `allowedActions` — what this viewer can do with the case right now —
+ * so the frontend doesn't have to re-implement the workflow rules. A hint
+ * only; every endpoint still enforces its own rules.
+ */
+function withAllowedActions<T extends { status: ApplicationStatus; createdById: string; ownerId: string | null }>(
+  actor: AuthenticatedUser,
+  application: T,
+) {
+  return {
+    ...application,
+    allowedActions: allowedActions({
+      status: application.status,
+      role: actor.role,
+      permissions: actor.permissions,
+      isCreator: application.createdById === actor.id,
+      isOwner: application.ownerId === actor.id,
+    }),
+  };
+}
+
 export async function getApplicationById(actor: AuthenticatedUser, id: string) {
   const application = await prisma.application.findFirst({
     where: { id, ...visibilityWhere(actor) },
@@ -88,7 +110,7 @@ export async function getApplicationById(actor: AuthenticatedUser, id: string) {
     throw new NotFoundError("Application not found");
   }
 
-  return application;
+  return withAllowedActions(actor, application);
 }
 
 export interface ListApplicationsFilters {
@@ -130,7 +152,7 @@ export async function listApplications(actor: AuthenticatedUser, filters: ListAp
   ]);
 
   return {
-    data,
+    data: (data as Array<Parameters<typeof withAllowedActions>[1]>).map((a) => withAllowedActions(actor, a)),
     pagination: buildPaginationMeta(filters.page, filters.limit, total),
   };
 }

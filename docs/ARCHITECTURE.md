@@ -21,7 +21,7 @@ src/
   services/       business logic; the only layer that talks to Prisma directly
   utils/          errors.ts (typed error classes), file-storage.ts, app-number-generator.ts, logger.ts
   validators/     Joi schemas
-  workflow/       statuses.ts + state-machine.ts — see below, this is the core of the system
+  workflow/       statuses.ts + state-machine.ts (the core of the system, see below) + allowed-actions.ts (the per-viewer "what can I do" hint)
 scripts/seed.ts   seeds 7 test users, one per role, password Password123!
 prisma/schema.prisma
 docs/             this file, BACKEND_REFERENCE.md (for frontend work), lats-openapi.yaml
@@ -148,6 +148,21 @@ Every application has an `ownerId` — the one person responsible for it at
 its **current stage**. It is display-only: the state machine, not
 ownership, decides who may act, so a case never gets stuck behind an
 absent owner. Anyone in the right role can still approve, reject or query.
+
+### Allowed actions
+
+`GET /applications` and `GET /applications/:id` attach `allowedActions` to each
+application: what the signed-in viewer can do with it right now, so the
+frontend doesn't copy the workflow rules. `workflow/allowed-actions.ts` is
+pure (no Prisma/env/Express) and builds the list from
+`actionsFrom(status, role)` in the state machine, so it reads the same
+TRANSITIONS table `applyAction()` enforces and can't drift from it (a unit
+test checks this for every role and status). It adds `withdraw` (permission
+`application:withdraw`) and `reassign` (current owner or `application:assign`,
+only where a person owns the stage), and limits Sales-only actions to the
+creator. It's a hint: every endpoint still enforces its own rules.
+
+### Case-owner rules
 
 The rules are pure (`utils/assignment.ts`, unit-tested, same convention as
 `roles.ts`/`pagination.ts`):

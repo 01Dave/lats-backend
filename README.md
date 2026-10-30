@@ -82,12 +82,12 @@ a Bearer token unless noted.
 
 **Auth**
 - `POST /api/v1/auth/login` (no auth)
-- `GET /api/v1/auth/me`
+- `GET /api/v1/auth/me` — the signed-in user (`id`, `email`, `name`, `role`, `permissions`)
 
 **Applications**
 - `POST /api/v1/applications` — create (Sales)
 - `GET /api/v1/applications` — list, scoped by role (Sales: own; everyone else: all); optional `status`/`owner=me`/`page`/`limit` query params; returns `{ data, pagination }`
-- `GET /api/v1/applications/:id`
+- `GET /api/v1/applications/:id` — each application (here and in the list) includes `owner` and `allowedActions`, what the signed-in user can do with it now
 - `PATCH /api/v1/applications/:id` — edit, DRAFT-only, creator-only
 - `POST /api/v1/applications/:id/submit`
 - `POST /api/v1/applications/:id/withdraw` — comment required

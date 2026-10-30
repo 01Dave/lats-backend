@@ -7,6 +7,7 @@ import { prisma } from "../db/client";
 export interface AuthenticatedUser {
   id: string;
   email: string;
+  name: string;
   role: RoleName;
   permissions: Permission[];
 }
@@ -60,6 +61,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   req.user = {
     id: user.id,
     email: user.email,
+    name: user.name,
     role: user.role as RoleName,
     permissions: permissionsForRole(user.role as RoleName),
   };

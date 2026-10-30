@@ -59,7 +59,7 @@ with a `Retry-After` header (seconds). Default limit is 5 attempts per 15
 minutes; a successful login resets the count. The frontend should show the
 message and disable the form for `Retry-After` seconds.
 
-**GET `/auth/me`** → same `user` shape, minus `name` (not currently returned here — known gap).
+**GET `/auth/me`** → the same `user` object as login, including `name`: `{ "id", "email", "name", "role", "permissions" }`.
 
 ---
 
@@ -132,6 +132,22 @@ doc/endpoint that returned a bare array):
 
 `GET /applications` and `GET /applications/:id` also include an `owner` object (`{ id, name, role }`, or `null`) alongside `ownerId`. Responses from the action endpoints (submit, decisions, withdraw) include `ownerId` only — refetch the application if you need the owner's name.
 
+**`allowedActions`.** `GET /applications` (every item) and `GET /applications/:id` also include `allowedActions`: an array of what the signed-in user can do with that case right now, so you can show or hide buttons without copying the workflow rules. It is an empty array for closed cases and for roles with nothing to do at that stage. It's a hint only — the endpoints enforce every rule themselves — and it's computed per viewer, so don't cache it across users. Action endpoints don't return it; refetch the application after an action.
+
+| Value | Meaning | Call |
+|---|---|---|
+| `submit` | send the draft to HOD | `POST /applications/:id/submit` |
+| `hod_approve`, `hod_query`, `hod_reject` | HOD decision | `POST …/hod-decision` with `decision` `approve` (needs `kycConfirmed: true`), `query` or `reject` |
+| `credit_approve`, `credit_query`, `credit_decline` | Credit Review decision | `POST …/credit-decision` with `decision` `approve`, `query` or `decline` |
+| `ic_approve`, `ic_query`, `ic_reject` | Internal Control decision | `POST …/internal-control-decision` with `decision` `approve`, `query` or `reject` |
+| `md_approve`, `md_reject` | MD decision | `POST …/md-decision` with `decision` `approve` or `reject` |
+| `finance_disburse` | record the disbursement | `POST …/disburse` |
+| `hod_resolve`, `credit_resolve`, `ic_resolve` | answer a query | `POST …/resolve-query` with `comment` (one endpoint for all three) |
+| `withdraw` | withdraw the case | `POST …/withdraw` with `comment` |
+| `reassign` | change the display owner | `POST …/assign` with `assigneeId` |
+
+Sales users only see `submit` and the resolve action on cases they created. `reassign` appears for the case's current owner and for admins, and only where a person owns the stage (not drafts or `HOD_QUERY`).
+
 **Case owner.** Every application has one owner: the person responsible for it at its current stage. It is assigned automatically whenever the status changes, and is **display-only** — it never limits who may act; anyone in the right role can still approve, reject or query. Use it to show "Assigned to Ada" on a case and `GET /applications?owner=me` for a personal queue.
 
 | Status | Owner |
@@ -186,6 +202,7 @@ Automatic assignment picks the active user in that role with the fewest cases cu
 | `branch` | string | always `"Main"` (single-branch bank); not an input, ignore it |
 | `ownerId` | uuid, nullable | current case owner, see above |
 | `owner` | object, nullable | `{ id, name, role }` — on GET responses only |
+| `allowedActions` | string[] | what the signed-in user can do now, see above — on GET responses only |
 | `requestedAmount` | string | decimal serialised as a string, e.g. `"50000"` — parse before doing math |
 | `tenorMonths` | integer | |
 | `kycConfirmed` | boolean | set by HOD's approval, see §5 |
@@ -412,6 +429,8 @@ Verified by actually running one application through the entire workflow against
 
 Also battle-tested against a running server in earlier rounds: the document upload content check (text file declared as PDF → `422`, a real PDF → `201`, a real PDF declared as PNG → `422`), CORS restriction (`200` with the default open setting, `403` for a disallowed origin once restricted), and `GET /applications` filtering and pagination.
 
+The single-branch change and case-owner assignment were battle-tested against a running server: the loan-type list returned 8 values; a purpose containing digits and an unknown loan type each returned `422`; a leftover `branch` in the body was ignored and the case saved as `Main`; submitting set an HOD as owner and recorded one assignment row; a different HOD could still raise a query (ownership is display-only) and the case went to the creator; resolving it returned the case to the original HOD; `?owner=me` returned the case for its owner only and `?owner=bogus` returned `422`; reassigning gave `403` for a non-owner, `200` for the owner and for an admin, `409` when the user already owned it and `422` for the wrong role; the history listed each change with who made it; approving moved the case to a Credit Review owner and withdrawing cleared the owner.
+
 Login throttling was battle-tested against a running server: five wrong passwords returned `401`, the sixth `429` with a `Retry-After` header, a different user was unaffected, and a correct login reset the count.
 
 User management (§7a) was also verified end-to-end against a real database (before branch was removed from it): create succeeded (`201`), the new user logged in with the password the admin set, admin blocked from deactivating their own account (`403`) and from demoting themselves away from `admin` (`403`), list returned every user with no `passwordHash` anywhere, and reset-password invalidated the old password and the new one worked immediately.
@@ -419,8 +438,7 @@ User management (§7a) was also verified end-to-end against a real database (bef
 **Not yet run, only reasoned from the code:**
 - Credit Review's `query`/`decline`, Internal Control's `query`/`reject` — the *shape* is identical to HOD's and MD's, which were tested, but these specific paths haven't been called.
 - `resolve-query` being rejected for the wrong role (only the correct-role path was tested).
-- Case-owner assignment — the rules (`ownerTargetForStatus`, `pickAssignee`, `assigneeProblem`) are unit-tested, but the database side (auto-assignment on each transition, a query returning to the same reviewer, `owner=me`, reassignment) hasn't been exercised against a running server yet.
-- The single-branch change (no `branch` input, HOD and Credit Review seeing all applications, `GET /meta/loan-types`, the purpose and loan-type rules) is unit-tested at the validator and permission level, but hasn't been exercised against a running server yet.
+- `allowedActions` and `name` in `GET /auth/me` — the logic is unit-tested (including a check that the hint always agrees with the state machine), but the live responses haven't been exercised against a running server yet.
 
 ---
 

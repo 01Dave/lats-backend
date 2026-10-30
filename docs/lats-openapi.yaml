@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: LATS API — Loan Application Tracking System
-  version: "0.8.0"
+  version: "0.9.0"
   description: >
     Contract for the endpoints that are implemented today (Phase 1, Steps 1–6).
     Six-stage workflow: Sales → HOD → Credit Review → Internal Control → MD →
@@ -143,7 +143,7 @@ paths:
       summary: The authenticated user
       responses:
         "200":
-          description: Current user (note — `name` is not included here)
+          description: Current user, the same shape as `user` in the login response
           content:
             application/json:
               schema:
@@ -151,8 +151,8 @@ paths:
                 properties:
                   id: { type: string, format: uuid }
                   email: { type: string }
+                  name: { type: string }
                   role: { $ref: "#/components/schemas/Role" }
-                  branch: { type: string, nullable: true }
                   permissions:
                     type: array
                     items: { type: string }
@@ -1037,9 +1037,38 @@ components:
             - $ref: "#/components/schemas/CaseOwner"
           nullable: true
           description: Present on GET responses only; action endpoints return `ownerId` alone.
+        allowedActions:
+          type: array
+          items: { $ref: "#/components/schemas/AllowedAction" }
+          description: >
+            What the signed-in user can do with this case right now (empty for closed cases).
+            A UI hint computed per viewer from the workflow rules; endpoints still enforce
+            every rule. Present on GET responses only.
         createdById: { type: string, format: uuid }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+
+    AllowedAction:
+      type: string
+      enum:
+        - submit
+        - hod_approve
+        - hod_query
+        - hod_reject
+        - hod_resolve
+        - credit_approve
+        - credit_query
+        - credit_decline
+        - credit_resolve
+        - ic_approve
+        - ic_query
+        - ic_reject
+        - ic_resolve
+        - md_approve
+        - md_reject
+        - finance_disburse
+        - withdraw
+        - reassign
 
     CaseOwner:
       type: object

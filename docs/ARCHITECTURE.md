@@ -22,7 +22,9 @@ src/
   utils/          errors.ts (typed error classes), file-storage.ts, app-number-generator.ts, logger.ts
   validators/     Joi schemas
   workflow/       statuses.ts + state-machine.ts (the core of the system, see below) + allowed-actions.ts (the per-viewer "what can I do" hint)
-scripts/seed.ts   seeds 7 test users, one per role, password Password123!
+scripts/seed.ts   seeds 9 test users (a second HOD and Credit Review included), password Password123!
+scripts/create-admin.ts   one-off: creates the first real admin (validation in utils/admin-bootstrap.ts)
+tests/e2e/        full-workflow test against a seeded database; run with `npm run test:e2e`
 prisma/schema.prisma
 docs/             this file, BACKEND_REFERENCE.md (for frontend work), lats-openapi.yaml
 ```
@@ -301,11 +303,11 @@ deliberately rather than discovering in production:
    client appears to share the proxy's IP. (Password reset being
    admin-only, via `/admin/users/:id/reset-password`, is deliberate — not
    a gap — there's no self-service password change by design.)
-7. **Test coverage is auth-gating only for most new endpoints** (confirms a
-   401 with no token) plus unit tests for the state machine, roles, and file
-   storage. The full multi-stage workflow was verified by hand against a
-   real database, not by an automated end-to-end test — there's a real gap
-   between "the code was exercised" and "there's a regression test."
+7. **Most integration tests check auth-gating only** (a 401 with no token);
+   the logic is covered by unit tests. The full multi-stage workflow now also
+   has an automated end-to-end test (`tests/e2e/full-workflow.e2e.test.ts`,
+   run with `npm run test:e2e`). It is kept out of `npm test` because it
+   needs a seeded database and writes to it (it cleans up after itself).
 8. ~~`bcrypt`'s dependency chain has known vulnerabilities.~~ **Fixed.**
    Bumped to `bcrypt@6`, which drops `node-pre-gyp` (the source of the
    `tar` vulnerabilities) entirely in favor of prebuilt binaries via

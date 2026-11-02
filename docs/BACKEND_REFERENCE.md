@@ -444,6 +444,13 @@ User management (§7a) was also verified end-to-end against a real database (bef
 
 ## 10. Deployment config
 
+**First admin.** On a fresh production database run `npm run create-admin`
+(not `npm run seed`, which creates test users with a shared, known password).
+It asks for an email, name and a hidden password (12+ characters, letters and
+digits, not a common password) and refuses to overwrite an existing user.
+Create every other user through the admin API (§7a).
+
+
 **`LOGIN_MAX_ATTEMPTS`** (default `5`) and **`LOGIN_WINDOW_MINUTES`**
 (default `15`) — login throttle limits, per IP + email. A set-but-invalid
 value (non-integer, below 1) fails the server at boot. State is in-memory:

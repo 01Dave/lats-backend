@@ -48,6 +48,19 @@ npm run seed               # creates one test user per role, password: Password1
 npm run dev
 ```
 
+**Production / any real database:** do not run `npm run seed` (it creates
+`@lats.test` accounts that share a known password). Create the first real
+admin instead, then add everyone else through the admin API:
+```bash
+npm run create-admin       # asks for email, name, and a hidden password (12+ characters)
+```
+
+**Tests:** `npm test` runs the unit and no-database tests. `npm run test:e2e`
+runs the full workflow end to end (draft to disbursement, every role, plus
+rejection, withdrawal and reassignment) against your database; it needs the
+seed users, deletes everything it creates, and refuses to run when
+`NODE_ENV=production`.
+
 `.env` values:
 - `DATABASE_URL` — PostgreSQL connection string
 - `JWT_SECRET` — any long random string

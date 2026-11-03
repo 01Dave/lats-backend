@@ -66,6 +66,16 @@ seed users, deletes everything it creates, and refuses to run when
 - `JWT_SECRET` — any long random string
 - `FILE_STORAGE_DIR` — where uploaded documents are written (default
   `./uploads`, git-ignored). Back this folder up alongside the database.
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM` (all
+  optional) — outgoing email. When set, a rejection at any stage (HOD,
+  Credit Review, Internal Control, MD) emails the Sales officer who started
+  the loan. Leave `SMTP_HOST` unset and the system works as before with no
+  email. Details in `.env.example`.
+
+**Trying the rejection email locally:** `npm run fake-smtp` starts a stand-in
+mail server that prints every message it receives. Point `.env` at it
+(`SMTP_HOST=127.0.0.1`, `SMTP_PORT=1025`, `MAIL_FROM="LATS <lats-noreply@bank.test>"`),
+restart `npm run dev`, and reject a loan.
 
 ## Documentation
 - `docs/BACKEND_REFERENCE.md` — API reference for frontend work: request/response

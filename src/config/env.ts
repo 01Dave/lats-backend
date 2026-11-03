@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { MailConfig, parseMailConfig } from "../utils/mail-config";
 
 dotenv.config();
 
@@ -13,6 +14,8 @@ interface EnvConfig {
   loginMaxAttempts: number;
   loginWindowMinutes: number;
   trustProxyHops: number;
+  /** null = email not configured (SMTP_HOST unset); rejection notices are skipped. */
+  mail: MailConfig | null;
 }
 
 /**
@@ -75,4 +78,6 @@ export const env: EnvConfig = {
   // behind a proxy shares one IP and the login throttle degrades to
   // per-email only.
   trustProxyHops: optionalInt("TRUST_PROXY_HOPS", 0, 0),
+  // Outgoing email (see utils/mail-config.ts). Off unless SMTP_HOST is set.
+  mail: parseMailConfig(process.env),
 };

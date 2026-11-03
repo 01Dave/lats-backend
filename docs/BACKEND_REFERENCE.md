@@ -255,6 +255,8 @@ A missing required comment returns `409 INVALID_TRANSITION`, not `422` — that 
 
 **HOD approve additionally requires `kycConfirmed: true` in the body**, or it's rejected with `422` before the workflow is even touched. This is the entire KYC-confirmation mechanism — a checkbox on the HOD approval screen, not a separate step or endpoint.
 
+**Rejection email.** When a decision closes the case as rejected (HOD `reject`, Credit Review `decline`, Internal Control `reject`, MD `reject`), the backend emails the Sales officer who started the loan, with the application number, customer, amount, who rejected it, and the reason. There's nothing for the frontend to call or display for this, and no response field changes. It is sent in the background after the decision is saved: if mail isn't configured, or the mail server is down, the rejection still succeeds and no email is sent. Withdrawals, queries and approvals send nothing.
+
 **Resolving a query** — one endpoint for all three query states:
 ```
 POST /applications/:id/resolve-query
@@ -435,10 +437,13 @@ Login throttling was battle-tested against a running server: five wrong password
 
 User management (§7a) was also verified end-to-end against a real database (before branch was removed from it): create succeeded (`201`), the new user logged in with the password the admin set, admin blocked from deactivating their own account (`403`) and from demoting themselves away from `admin` (`403`), list returned every user with no `passwordHash` anywhere, and reset-password invalidated the old password and the new one worked immediately.
 
-**Not yet run, only reasoned from the code:**
-- Credit Review's `query`/`decline`, Internal Control's `query`/`reject` — the *shape* is identical to HOD's and MD's, which were tested, but these specific paths haven't been called.
-- `resolve-query` being rejected for the wrong role (only the correct-role path was tested).
-- `allowedActions` and `name` in `GET /auth/me` — the logic is unit-tested (including a check that the hint always agrees with the state machine), but the live responses haven't been exercised against a running server yet.
+`GET /auth/me` returning `name`, and `allowedActions` on applications, were also checked against a running server: Sales saw `["submit","withdraw"]` on a draft and only `["withdraw"]` once submitted, the owning HOD saw the three decisions plus `reassign` while the other HOD saw only the decisions, Credit Review saw nothing at the HOD stage, an admin saw `["reassign","withdraw"]`, and a withdrawn case showed an empty list for everyone.
+
+An automated end-to-end test (`npm run test:e2e`, `tests/e2e/`) runs a case from draft to disbursement through every role against the real database, plus an Internal Control rejection, a withdrawal and an admin reassignment, and passes. It covers the Credit Review and Internal Control query paths and `resolve-query` being refused for the wrong role.
+
+**Not yet run against the real thing:**
+- The rejection email. It is tested end to end against a stand-in mail server (the message arrives at the right address with the right wording, login works, a dead server never blocks a rejection), but it has not been tried against the bank's actual mail server, whose details are still to come.
+- Credit Review `decline` and MD `reject` as live API calls are exercised by the new rejection-email end-to-end test, which needs to be run once on a seeded database.
 
 ---
 
@@ -450,6 +455,16 @@ It asks for an email, name and a hidden password (12+ characters, letters and
 digits, not a common password) and refuses to overwrite an existing user.
 Create every other user through the admin API (§7a).
 
+
+**`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`**
+(all optional) — outgoing email for the rejection notice (§5). Email is off
+unless `SMTP_HOST` is set. `SMTP_USER` and `SMTP_PASSWORD` must be set together
+(omit both for a relay that needs no login). `MAIL_FROM` (for example
+`"LATS <lats-noreply@bank.com>"`) is required unless `SMTP_USER` is itself an
+email address. Port `465` connects over TLS from the start; other ports use
+STARTTLS when the server offers it (override with `SMTP_SECURE`). Set
+`SMTP_ALLOW_INVALID_CERT=true` only if the bank's mail server uses a
+self-signed certificate. A set-but-invalid value stops the server at boot.
 
 **`LOGIN_MAX_ATTEMPTS`** (default `5`) and **`LOGIN_WINDOW_MINUTES`**
 (default `15`) — login throttle limits, per IP + email. A set-but-invalid

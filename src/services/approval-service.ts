@@ -5,6 +5,8 @@ import { ValidationError, NotFoundError } from "../utils/errors";
 import { AuthenticatedUser } from "../middleware/auth-middleware";
 import { getApplicationById } from "./application-service";
 import { chooseOwnerId, recordAssignment } from "./assignment-service";
+import { notifyRejection } from "./notification-service";
+import { isRejectionStatus } from "../utils/rejection-email";
 
 type ApprovalStage = "HOD" | "CREDIT_REVIEW" | "INTERNAL_CONTROL" | "MD" | "FINANCE" | "WITHDRAWAL";
 type ApprovalDecision = "APPROVE" | "QUERY" | "DECLINE" | "REJECT" | "RESOLVE" | "WITHDRAW" | "DISBURSE";
@@ -39,7 +41,7 @@ async function executeDecision(params: {
     comment: params.comment,
   });
 
-  return prisma.$transaction(async (
+  const updated = await prisma.$transaction(async (
     // See the matching comment in application-service.ts withdrawApplication
     // for why this is an explicit `any`.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,6 +74,21 @@ async function executeDecision(params: {
 
     return updated;
   });
+
+  // A rejection at any stage emails the loan's initiator. Fire-and-forget and
+  // only after the transaction above has committed: notifyRejection() catches
+  // and logs every failure itself, so a mail problem can never undo or delay
+  // the decision.
+  if (isRejectionStatus(result.status)) {
+    void notifyRejection({
+      applicationId: params.applicationId,
+      status: result.status,
+      rejectedById: params.actorId,
+      comment: params.comment ?? "",
+    });
+  }
+
+  return updated;
 }
 
 export interface HodDecisionInput {

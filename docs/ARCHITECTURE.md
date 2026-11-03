@@ -212,7 +212,8 @@ pattern as everything else. No separate `admin` schema or table — it's
 plain CRUD over the existing `User` model.
 
 An admin sets a user's initial/new password directly in the request —
-there's no email/SMS delivery infrastructure in this system, so a
+there's no email-based password flow in this system (the only email it
+sends is the rejection notice, see "Rejection email"), so a
 system-generated password would still have to be relayed to the user
 out-of-band by the same admin anyway. `passwordHash` is never returned by
 any of these endpoints (`toSafeUser()` strips it before the response
@@ -256,6 +257,26 @@ row `current: false` and creates a new one, rather than overwriting.
 Document review status (`pending`/`verified`/`rejected`/`expired`) is
 independent of the workflow — set directly by whoever reviews it, gates
 nothing.
+
+## Rejection email
+
+When a case is rejected at any stage (`HOD_REJECTED`, `CREDIT_DECLINED`,
+`IC_REJECTED`, `MD_REJECTED`), the Sales officer who created it is emailed the
+application number, customer, loan type, amount, who rejected it, and the
+reviewer's reason. Withdrawals, queries and approvals send nothing.
+
+- `executeDecision()` in approval-service calls `notifyRejection()` **after**
+  the transaction commits, without awaiting it. `services/notification-service.ts`
+  catches and logs every failure itself, so a mail problem can never undo or
+  delay a rejection. There is no retry and no stored record of the send: if the
+  mail server is down at that moment the email is lost (logged, not queued).
+- It is off unless `SMTP_HOST` is set (`utils/mail-config.ts` parses the
+  settings and refuses to start on a set-but-invalid value). When off it does
+  nothing, not even database lookups.
+- Pure and testable: `utils/rejection-email.ts` (wording, HTML escaping, header
+  safety) and `utils/mail-config.ts`. `utils/mailer.ts` is a thin nodemailer
+  wrapper tested against a real in-process SMTP server.
+- `npm run fake-smtp` is a local stand-in mail server for development.
 
 ## Known limitations
 

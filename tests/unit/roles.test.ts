@@ -44,3 +44,15 @@ describe("visibility permissions (single-branch bank)", () => {
     }
   });
 });
+
+describe("report:view permission", () => {
+  it("is held by every reviewer, finance and admin", () => {
+    for (const role of ["hod", "credit_review", "internal_control", "md", "finance", "admin"] as const) {
+      expect(permissionsForRole(role)).toContain("report:view");
+    }
+  });
+
+  it("is not held by Sales", () => {
+    expect(permissionsForRole("sales")).not.toContain("report:view");
+  });
+});

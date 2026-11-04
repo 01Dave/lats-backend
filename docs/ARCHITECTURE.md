@@ -19,7 +19,7 @@ src/
   middleware/     auth, RBAC, validation, upload, error handling, catchAsync
   routes/         Express routers — this is the map of every real endpoint
   services/       business logic; the only layer that talks to Prisma directly
-  utils/          errors.ts (typed error classes), file-storage.ts, app-number-generator.ts, logger.ts
+  utils/          errors.ts (typed error classes), file-storage.ts, app-number-generator.ts, logger.ts, plus the pure report helpers (csv, money, report-dates, report-summary, report-pipeline, status-labels, case-pdf)
   validators/     Joi schemas
   workflow/       statuses.ts + state-machine.ts (the core of the system, see below) + allowed-actions.ts (the per-viewer "what can I do" hint)
 scripts/seed.ts   seeds 9 test users (a second HOD and Credit Review included), password Password123!
@@ -258,6 +258,35 @@ Document review status (`pending`/`verified`/`rejected`/`expired`) is
 independent of the workflow — set directly by whoever reviews it, gates
 nothing.
 
+## Reports
+
+Read-only, behind the `report:view` permission (every role except Sales).
+All of those roles already see every application, so reports apply no
+per-user scoping. Routes: `routes/report-routes.ts` (mounted at `/reports`)
+plus `GET /applications/:id/pdf` in `application-routes.ts`; logic in
+`services/report-service.ts` (the only part that touches Prisma). The
+calculations are pure modules, unit-tested without a database:
+`utils/report-summary.ts`, `report-pipeline.ts`, `report-dates.ts`, `csv.ts`,
+`money.ts`, `status-labels.ts` and `case-pdf.ts` (pdfkit).
+
+Rules worth knowing:
+- **Nigerian time.** A day or month is a Lagos one (UTC+1, no daylight
+  saving), so a loan created at 00:30 on 1 November is a November loan.
+  `from`/`to` are Lagos calendar days, both inclusive.
+- **Monthly summary is by creation month.** A loan belongs to the month it was
+  created and shows what has happened to it since. Drafts are counted apart
+  (`drafts`) and are not in the figures. Money is summed in whole cents and
+  returned as strings with two decimals.
+- **Pipeline/aging** covers the eight resting statuses. Time in stage runs from
+  the later of the latest decision and the latest *automatic* assignment
+  (manual reassignments don't reset it), falling back to the created date.
+- **CSV safety.** Cells starting with `=`, `+`, `-` or `@` are prefixed with an
+  apostrophe so Excel treats them as text, not formulas; phone numbers are
+  written as text literals so a leading 0 survives; the file starts with a UTF-8
+  byte-order mark so accents display correctly. Capped at 10,000 rows
+  (`X-Report-Truncated: true` when it bites).
+- Single-instance, no caching: every request queries live data.
+
 ## Rejection email
 
 When a case is rejected at any stage (`HOD_REJECTED`, `CREDIT_DECLINED`,
@@ -343,7 +372,7 @@ deliberately rather than discovering in production:
 
 ## What's not built at all
 
-PDF export, reports. (A separate, dedicated audit-log endpoint is
+Excel `.xlsx` export (reports are CSV, which opens in Excel). (A separate, dedicated audit-log endpoint is
 deliberately not built — the `Approval` table already is the audit
 trail for who approved/rejected/queried what, and when; that was
 confirmed sufficient rather than left open.)

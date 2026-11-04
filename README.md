@@ -4,7 +4,7 @@ Standalone Loan Application Tracking System backend for the bank.
 Workflow: Sales -> HOD -> Credit Review -> Internal Control -> MD -> Finance.
 
 ## Stack
-Node.js, Express, TypeScript, PostgreSQL via Prisma, JWT auth, Joi validation.
+Node.js, Express, TypeScript, PostgreSQL via Prisma, JWT auth, Joi validation, pdfkit (PDF reports).
 
 ## Status: Phase 1, Steps 1-6
 Auth + RBAC, Application CRUD + workflow state machine, independent
@@ -116,6 +116,7 @@ a Bearer token unless noted.
 - `POST /api/v1/applications/:id/withdraw` — comment required
 - `POST /api/v1/applications/:id/assign` — reassign the case owner (current owner or admin)
 - `GET /api/v1/applications/:id/assignments` — who has held the case, and when
+- `GET /api/v1/applications/:id/pdf` — one-case PDF report (`report:view`)
 
 **Reference data**
 - `GET /api/v1/meta/loan-types` — the 8 approved loan types, for the frontend dropdown (any signed-in user)
@@ -138,6 +139,11 @@ a Bearer token unless noted.
 - `POST /api/v1/applications/:id/documents` — multipart/form-data (`file`, `docType`)
 - `GET /api/v1/applications/:id/documents/:documentId` — download
 - `PATCH /api/v1/applications/:id/documents/:documentId` — set status (`document:verify` permission)
+
+**Reports** (all require `report:view`)
+- `GET /api/v1/reports/applications.csv` — applications spreadsheet; optional `status`, `productName`, `from`, `to` (YYYY-MM-DD, by creation date)
+- `GET /api/v1/reports/summary` — per-month, per-loan-type counts and amounts; optional `from`, `to`
+- `GET /api/v1/reports/pipeline` — open cases per stage with average and oldest days in stage
 
 **User management** (all require `admin:users`)
 - `POST /api/v1/admin/users` — create (`email`, `name`, `password`, `role`)
@@ -176,7 +182,9 @@ letters and single spaces only; `requestedAmount` and `tenorMonths` accept
 any positive value (no upper limit by decision — Sales treats both as
 flexible).
 
-**Not yet implemented**: reports, PDF export. (A separate audit log
+**Reports** (read-only; reviewers, Finance and Admin only, via the `report:view` permission, never Sales): a one-case PDF, an applications spreadsheet (CSV that opens in Excel), a monthly summary and a pipeline-and-aging view. Months and days are Nigerian time (Africa/Lagos). Run `npm install` after pulling this change (adds `pdfkit`).
+
+**Not yet implemented**: Excel `.xlsx` export (the CSV opens in Excel). (A separate audit log
 beyond the `Approval` trail was deliberately not built — `Approval`
 already covers who approved/rejected/queried what, and when, which was
 confirmed sufficient.)

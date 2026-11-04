@@ -6,7 +6,7 @@ import { LOAN_TYPES } from "../config/loan-types";
 // duplicating that one list is simpler than deriving it from a type (which
 // doesn't exist at runtime). Keep in sync with ApplicationStatus if a
 // status is ever added or renamed.
-const APPLICATION_STATUS_VALUES = [
+export const APPLICATION_STATUS_VALUES = [
   "DRAFT",
   "SUBMITTED",
   "HOD_IN_REVIEW",

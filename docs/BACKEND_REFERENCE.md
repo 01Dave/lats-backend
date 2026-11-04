@@ -10,7 +10,7 @@ history, comments, document upload/verify/download, admin user management,
 case-owner assignment and reassignment.
 
 **Not implemented:** editing an application once it's past DRAFT (including
-after a query response), reports.
+after a query response), Excel `.xlsx` export (reports are available as PDF, CSV and JSON, §7b).
 (Self-service password change is deliberately out of scope —
 password reset is admin-only by design, via
 `POST /admin/users/:id/reset-password`. A separate audit-log endpoint is
@@ -331,12 +331,12 @@ One role per user. Gate UI on **permissions**, not role names.
 | Role | Permissions |
 |---|---|
 | `sales` | `application:create`, `application:view:own`, `application:withdraw`, `document:upload`, `document:view`, `comment:create` |
-| `hod` | `application:view:all`, `document:upload`, `document:view`, `document:verify`, `hod:approve`, `comment:create` |
-| `credit_review` | `application:view:all`, `credit:review`, `credit:approve`, `document:view`, `document:verify`, `comment:create` |
-| `internal_control` | `application:view:all`, `control:verify`, `control:approve`, `document:view`, `document:verify`, `comment:create` |
-| `md` | `application:view:all`, `approval:md`, `document:view`, `comment:create` |
-| `finance` | `application:view:all`, `disbursement:record`, `document:view` |
-| `admin` | `admin:users`, `admin:config`, `application:view:all`, `application:withdraw`, `application:assign`, `document:verify` |
+| `hod` | `application:view:all`, `document:upload`, `document:view`, `document:verify`, `hod:approve`, `report:view`, `comment:create` |
+| `credit_review` | `application:view:all`, `credit:review`, `credit:approve`, `document:view`, `document:verify`, `report:view`, `comment:create` |
+| `internal_control` | `application:view:all`, `control:verify`, `control:approve`, `document:view`, `document:verify`, `report:view`, `comment:create` |
+| `md` | `application:view:all`, `approval:md`, `document:view`, `report:view`, `comment:create` |
+| `finance` | `application:view:all`, `disbursement:record`, `document:view`, `report:view` |
+| `admin` | `admin:users`, `admin:config`, `application:view:all`, `application:withdraw`, `application:assign`, `document:verify`, `report:view` |
 
 `application:view:all` now covers every role except Sales (who keep
 `application:view:own`): there is no branch scoping because the bank is
@@ -347,6 +347,21 @@ gates anything on it, switch to `application:view:all`.
 `application:assign` lets an admin reassign any case owner; the current owner of a case can also reassign it without this permission (§3).
 `admin:users` gates everything under `/admin/users` (§7a) — there's no
 partial admin access; it's all-or-nothing in this version.
+
+---
+
+## 7b. Reports
+
+All need `report:view` (every role except Sales; Sales get `403`). Read-only. Dates and months are Nigerian time (Africa/Lagos).
+
+| Endpoint | Returns |
+|---|---|
+| `GET /applications/:id/pdf` | PDF of one case: details, owner, KYC, disbursement, approval trail with names and comments, case notes, owner history, current documents. Downloads as `<application number>.pdf`. `404` if the case doesn't exist. |
+| `GET /reports/applications.csv` | CSV (opens in Excel), newest first, readable status wording. Optional filters: `status`, `productName` (one of the 8 loan types), `from`, `to` (`YYYY-MM-DD`, on creation date, both inclusive). Max 10,000 rows; header `X-Report-Truncated: true` if more matched. |
+| `GET /reports/summary` | JSON, one entry per month (oldest first) by creation month: `drafts`, `total` and `byLoanType`, each with `submitted`, `inProgress`, `disbursed`, `rejected`, `rejectedByStage {hod, creditReview, internalControl, md}`, `withdrawn`, `requestedAmount`, `disbursedAmount` (strings, 2 decimals). Optional `from`, `to`. |
+| `GET /reports/pipeline` | JSON: `totalOpen` and `stages` (all eight waiting statuses, in workflow order) each with `count`, `averageDays`, and the five `oldest` cases (`id`, `appNumber`, `customerName`, `productName`, `requestedAmount`, `owner`, `daysInStage`). |
+
+Frontend notes: the PDF and CSV are file downloads, so fetch them with the bearer token as a blob (a plain link can't send the header) and take the file name from `Content-Disposition`. Bad filters return `422` with the usual error body. Hide the report buttons unless the user's `permissions` include `report:view`.
 
 ---
 
@@ -440,6 +455,8 @@ User management (§7a) was also verified end-to-end against a real database (bef
 `GET /auth/me` returning `name`, and `allowedActions` on applications, were also checked against a running server: Sales saw `["submit","withdraw"]` on a draft and only `["withdraw"]` once submitted, the owning HOD saw the three decisions plus `reassign` while the other HOD saw only the decisions, Credit Review saw nothing at the HOD stage, an admin saw `["reassign","withdraw"]`, and a withdrawn case showed an empty list for everyone.
 
 An automated end-to-end test (`npm run test:e2e`, `tests/e2e/`) runs a case from draft to disbursement through every role against the real database, plus an Internal Control rejection, a withdrawal and an admin reassignment, and passes. It covers the Credit Review and Internal Control query paths and `resolve-query` being refused for the wrong role.
+
+The reports have an automated end-to-end test (`tests/e2e/reports.e2e.test.ts`) and unit tests for every calculation; the PDF text, CSV safety rules, Lagos month boundaries, access rules and headers are checked. The end-to-end run needs to be done once on a seeded database.
 
 **Not yet run against the real thing:**
 - The rejection email. It is tested end to end against a stand-in mail server (the message arrives at the right address with the right wording, login works, a dead server never blocks a rejection), but it has not been tried against the bank's actual mail server, whose details are still to come.

@@ -30,6 +30,7 @@ import {
   reassignCaseController,
   listAssignmentsController,
 } from "../api/application-controller";
+import { casePdfController } from "../api/report-controller";
 import {
   listDocumentsController,
   uploadDocumentController,
@@ -54,6 +55,7 @@ router.use(authMiddleware);
 router.post("/", requirePermission("application:create"), validateBody(createApplicationSchema), createApplicationController);
 router.get("/", validateQuery(listApplicationsQuerySchema), listApplicationsController);
 router.get("/:id", getApplicationController);
+router.get("/:id/pdf", requirePermission("report:view"), casePdfController);
 // No requirePermission wrapper — same pattern as submit: creator-only and
 // DRAFT-only are enforced inside the service, not at the route layer.
 router.patch("/:id", validateBody(updateApplicationSchema), updateApplicationController);

@@ -23,7 +23,8 @@ export type Permission =
   | "approval:md"
   | "disbursement:record"
   | "admin:users"
-  | "admin:config";
+  | "admin:config"
+  | "report:view";
 
 export type RoleName =
   | "sales"
@@ -49,6 +50,7 @@ export const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
     "document:view",
     "document:verify",
     "hod:approve",
+    "report:view",
     "comment:create",
   ],
   credit_review: [
@@ -57,6 +59,7 @@ export const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
     "credit:approve",
     "document:view",
     "document:verify",
+    "report:view",
     "comment:create",
   ],
   internal_control: [
@@ -65,10 +68,11 @@ export const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
     "control:approve",
     "document:view",
     "document:verify",
+    "report:view",
     "comment:create",
   ],
-  md: ["application:view:all", "approval:md", "document:view", "comment:create"],
-  finance: ["application:view:all", "disbursement:record", "document:view"],
+  md: ["application:view:all", "approval:md", "document:view", "report:view", "comment:create"],
+  finance: ["application:view:all", "disbursement:record", "document:view", "report:view"],
   admin: [
     "admin:users",
     "admin:config",
@@ -76,6 +80,7 @@ export const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
     "application:withdraw",
     "application:assign",
     "document:verify",
+    "report:view",
   ],
 };
 
